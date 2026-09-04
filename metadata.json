@@ -1,0 +1,6 @@
+{
+  "name": "ระบบติดตามเอกสารการเบิกจ่าย ส่วนการเงินและบัญชี มหาวิทยาลัยแม่ฟ้าหลวง",
+  "description": "ระบบติดตามเอกสารการเบิกจ่าย ส่วนการเงินและบัญชี มหาวิทยาลัยแม่ฟ้าหลวง เชื่อมต่อ Google Sheets ID 16wNQfdZE6sNZBsiSuRDUkqUP3FpJJh18u7TaURqzmzk",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบติดตามเอกสาร (Document Tracking System) - 4 ฝ่าย</title>
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <!-- Google Fonts Sarabun -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Sarabun', sans-serif;
+      background-color: #f1f5f9;
+      color: #1e293b;
+    }
+    .dept-nav .nav-link {
+      color: #64748b;
+      font-weight: 500;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    .dept-nav .nav-link.active {
+      background-color: #2563eb;
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+    }
+    .doc-card {
+      background: #ffffff;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .doc-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    }
+    .latest-badge {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: white;
+    }
+    .round-tag {
+      background-color: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      font-weight: 600;
+      font-size: 0.8rem;
+      padding: 3px 8px;
+      border-radius: 20px;
+    }
+    .info-label {
+      font-size: 0.8rem;
+      color: #64748b;
+    }
+    .info-value {
+      font-size: 0.92rem;
+      font-weight: 500;
+      color: #0f172a;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navbar -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm sticky-top">
+    <div class="container-fluid px-3 px-lg-4">
+      <a class="navbar-brand d-flex align-items-center gap-2 fw-bold" href="#">
+        <i class="bi bi-folder2-open text-warning fs-4"></i>
+        <span>ระบบติดตามเอกสาร</span>
+        <span class="badge bg-primary ms-1 fs-6">GAS + Bootstrap 5</span>
+      </a>
+      <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-outline-light btn-sm" onclick="fetchDocuments()">
+          <i class="bi bi-arrow-clockwise me-1"></i> โหลดข้อมูลใหม่
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container-fluid px-3 px-lg-4 py-4">
+
+    <!-- Header & Navigation Tabs 4 ฝ่าย -->
+    <div class="bg-white rounded-3 p-3 shadow-sm mb-4 border">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 pb-3 border-bottom">
+        <div>
+          <h4 class="mb-1 fw-bold text-dark">ระบบติดตามเอกสารผู้ให้บริการ 4 ฝ่าย</h4>
+          <p class="text-muted small mb-0">Google Sheet ID: <code>16wNQfdZE6sNZBsiSuRDUkqUP3FpJJh18u7TaURqzmzk</code> (Sheet: DATA)</p>
+        </div>
+        <div class="d-flex gap-2">
+          <div class="input-group" style="max-width: 320px;">
+            <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+            <input type="text" id="searchInput" class="form-control" placeholder="ค้นหาเลขที่เอกสาร, หน่วยงาน..." onkeyup="filterAndRender()">
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs: 4 ฝ่าย -->
+      <ul class="nav dept-nav mt-3 gap-2" id="deptTabs">
+        <li class="nav-item">
+          <button class="nav-link active" onclick="switchDept('งานตรวจจ่าย')">
+            <i class="bi bi-folder-check me-1"></i> งานตรวจจ่าย <span class="badge bg-light text-dark ms-1" id="count-งานตรวจจ่าย">0</span>
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" onclick="switchDept('งานสอบทาน')">
+            <i class="bi bi-file-earmark-check me-1"></i> งานสอบทาน <span class="badge bg-light text-dark ms-1" id="count-งานสอบทาน">0</span>
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" onclick="switchDept('งานการเงิน')">
+            <i class="bi bi-cash-stack me-1"></i> งานการเงิน <span class="badge bg-light text-dark ms-1" id="count-งานการเงิน">0</span>
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" onclick="switchDept('งานงบประมาณ')">
+            <i class="bi bi-pie-chart me-1"></i> งานงบประมาณ <span class="badge bg-light text-dark ms-1" id="count-งานงบประมาณ">0</span>
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" onclick="switchDept('ALL')">
+            <i class="bi bi-collection me-1"></i> ทุกฝ่าย <span class="badge bg-light text-dark ms-1" id="count-ALL">0</span>
+          </button>
+        </li>
+      </ul>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="text-center py-5">
+      <div class="spinner-border text-primary" role="status"></div>
+      <p class="mt-2 text-muted">กำลังโหลดข้อมูลเอกสารจาก Google Sheets...</p>
+    </div>
+
+    <!-- Cards Container -->
+    <div id="cardsContainer" class="row g-3 d-none">
+      <!-- Cards rendered via JavaScript -->
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="text-center py-5 d-none bg-white rounded-3 border">
+      <i class="bi bi-inbox text-muted display-4"></i>
+      <h5 class="mt-3 text-secondary">ไม่พบรายการเอกสารในฝ่ายนี้</h5>
+      <p class="text-muted small">ลองเปลี่ยนคำค้นหา หรือเลือกฝ่ายอื่น</p>
+    </div>
+
+  </div>
+
+  <!-- Modal: แก้ไขข้อมูลเอกสาร / เพิ่มรอบ -->
+  <div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header bg-primary text-white">
+          <h5 class="modal-title fw-bold" id="modalTitle">
+            <i class="bi bi-pencil-square me-2"></i>แก้ไขข้อมูลเอกสาร
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-4">
+          <form id="editForm">
+            <input type="hidden" id="f_rowId">
+            <input type="hidden" id="f_action" value="updateDocument">
+
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label small fw-bold">เลขที่เอกสาร <span class="text-danger">*</span></label>
+                <input type="text" id="f_docNo" class="form-control" required>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-bold">เลขทะเบียนรับ</label>
+                <input type="text" id="f_receiveNo" class="form-control">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-bold">เลขที่ อว</label>
+                <input type="text" id="f_docRef" class="form-control">
+              </div>
+
+              <div class="col-md-6">
+                <label class="form-label small fw-bold">ชื่อหน่วยงาน</label>
+                <input type="text" id="f_agency" class="form-control">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small fw-bold">ประเภทเอกสาร</label>
+                <input type="text" id="f_docType" class="form-control">
+              </div>
+
+              <div class="col-md-4">
+                <label class="form-label small fw-bold">ผู้ส่งเอกสาร</label>
+                <input type="text" id="f_sender" class="form-control">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-bold">โทรศัพท์</label>
+                <input type="text" id="f_phone" class="form-control">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-bold">งานธุรการ EP / N-O</label>
+                <div class="input-group">
+                  <input type="text" id="f_ep" class="form-control" placeholder="EP">
+                  <input type="text" id="f_no" class="form-control" placeholder="N/O">
+                </div>
+              </div>
+
+              <div class="col-md-4">
+                <label class="form-label small fw-bold">วันที่รับ</label>
+                <input type="text" id="f_dateReceive" class="form-control">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-bold">วันที่ลงโต๊ะ</label>
+                <input type="text" id="f_dateDesk" class="form-control">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-bold">วันที่ส่งคืน</label>
+                <input type="text" id="f_dateReturn" class="form-control">
+              </div>
+
+              <div class="col-md-6">
+                <label class="form-label small fw-bold">สถานะการส่งคืน</label>
+                <select id="f_returnStatus" class="form-select">
+                  <option value="ส่งต่อจ่ายทั่วไป">ส่งต่อจ่ายทั่วไป</option>
+                  <option value="ติดต่อรับคืน">ติดต่อรับคืน</option>
+                  <option value="ส่งต่อเคาท์เตอร์จ่าย">ส่งต่อเคาท์เตอร์จ่าย</option>
+                  <option value="กำลังดำเนินการ">กำลังดำเนินการ</option>
+                  <option value="ส่งคืนแล้ว">ส่งคืนแล้ว</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small fw-bold">ผู้ให้บริการ (Final)</label>
+                <input type="text" id="f_providerFinal" class="form-control">
+              </div>
+
+              <div class="col-12">
+                <label class="form-label small fw-bold">เหตุผล/หมายเหตุ</label>
+                <textarea id="f_note" class="form-control" rows="2"></textarea>
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer bg-light">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+          <button type="button" class="btn btn-primary" onclick="submitEditForm()">
+            <i class="bi bi-check2-circle me-1"></i> บันทึกข้อมูล
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: ดูประวัติการเข้า-ออกหลายรอบ -->
+  <div class="modal fade" id="historyModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header bg-dark text-white">
+          <h5 class="modal-title fw-bold">
+            <i class="bi bi-clock-history me-2"></i>ประวัติการเข้า-ออกเอกสาร
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-4" id="historyTimelineContent">
+          <!-- Timeline will be injected here -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    // State
+    let allDocuments = [];
+    let currentDept = 'งานตรวจจ่าย';
+    let editModalObj = null;
+    let historyModalObj = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      editModalObj = new bootstrap.Modal(document.getElementById('editModal'));
+      historyModalObj = new bootstrap.Modal(document.getElementById('historyModal'));
+      fetchDocuments();
+    });
+
+    // ดึงข้อมูลเอกสารผ่าน Google Apps Script Runner หรือ Fetch API
+    function fetchDocuments() {
+      document.getElementById('loadingState').classList.remove('d-none');
+      document.getElementById('cardsContainer').classList.add('d-none');
+      document.getElementById('emptyState').classList.add('d-none');
+
+      // ตรวจสอบว่ารันอยู่ในสภาพแวดล้อม Google Apps Script หรือรันผ่าน Fetch
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(onDataLoaded)
+          .withFailureHandler(onDataError)
+          .getAllDocuments();
+      } else {
+        // ดึงผ่าน Google Sheet gviz หรือ Fetch API
+        const gvizUrl = 'https://docs.google.com/spreadsheets/d/16wNQfdZE6sNZBsiSuRDUkqUP3FpJJh18u7TaURqzmzk/gviz/tq?tqx=out:json&sheet=DATA';
+        fetch(gvizUrl)
+          .then(res => res.text())
+          .then(text => {
+            const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+            const data = JSON.parse(jsonStr);
+            const rows = parseGvizRows(data.table.rows);
+            onDataLoaded(rows);
+          })
+          .catch(err => {
+            console.error('Fetch error:', err);
+            onDataError(err);
+          });
+      }
+    }
+
+    function parseGvizRows(gvizRows) {
+      const docRounds = {};
+      return gvizRows.map((r, idx) => {
+        const val = (i) => {
+          const cell = r.c[i];
+          if (!cell) return '';
+          return (cell.f !== undefined && cell.f !== null) ? String(cell.f).trim() : (cell.v !== undefined && cell.v !== null ? String(cell.v).trim() : '');
+        };
+        const docNo = val(7) || `DOC-${idx + 1}`;
+        docRounds[docNo] = (docRounds[docNo] || 0) + 1;
+
+        const pFinal = val(15);
+        const pAuto = val(13);
+        const dType = val(8);
+        const sType = val(17);
+        const combined = (pFinal + ' ' + pAuto + ' ' + dType + ' ' + sType).toLowerCase();
+
+        let dept = 'งานตรวจจ่าย';
+        if (combined.includes('s2') || combined.includes('สอบทาน')) dept = 'งานสอบทาน';
+        else if (combined.includes('จ่ายเงิน') || combined.includes('การเงิน') || combined.includes('เงินเดือน') || combined.includes('ทุนการศึกษา')) dept = 'งานการเงิน';
+        else if (combined.includes('งบประมาณ')) dept = 'งานงบประมาณ';
+
+        return {
+          rowId: idx + 2,
+          ep: val(0),
+          no: val(1),
+          receiveNo: val(2),
+          sender: val(3),
+          phone: val(4),
+          docRef: val(5),
+          agency: val(6),
+          docNo: docNo,
+          docType: val(8),
+          dateReceive: val(9),
+          dateDesk: val(10),
+          dateReturn: val(11),
+          returnStatus: val(12),
+          providerAuto: val(13),
+          providerChange: val(14),
+          providerFinal: val(15),
+          note: val(16),
+          subType: val(17),
+          qa: val(18),
+          actionDate: val(19),
+          action: val(20),
+          status: val(21),
+          editGroup: val(22),
+          editDetail: val(23),
+          department: dept,
+          round: docRounds[docNo]
+        };
+      });
+    }
+
+    function onDataLoaded(data) {
+      allDocuments = data;
+      document.getElementById('loadingState').classList.add('d-none');
+      updateCounts();
+      filterAndRender();
+    }
+
+    function onDataError(err) {
+      document.getElementById('loadingState').innerHTML = `
+        <div class="alert alert-danger d-inline-block">
+          <i class="bi bi-exclamation-triangle-fill me-2"></i>เกิดข้อผิดพลาดในการโหลดข้อมูล: ${err.message || err}
+        </div>
+      `;
+    }
+
+    function switchDept(dept) {
+      currentDept = dept;
+      document.querySelectorAll('#deptTabs .nav-link').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.getAttribute('onclick').includes(dept)) {
+          btn.classList.add('active');
+        }
+      });
+      filterAndRender();
+    }
+
+    function updateCounts() {
+      const counts = { 'งานตรวจจ่าย': 0, 'งานสอบทาน': 0, 'งานการเงิน': 0, 'งานงบประมาณ': 0, 'ALL': 0 };
+      const grouped = groupDocuments(allDocuments);
+
+      grouped.forEach(g => {
+        counts['ALL']++;
+        if (counts[g.department] !== undefined) {
+          counts[g.department]++;
+        }
+      });
+
+      for (let k in counts) {
+        const el = document.getElementById('count-' + k);
+        if (el) el.textContent = counts[k];
+      }
+    }
+
+    function groupDocuments(items) {
+      const map = new Map();
+      items.forEach(item => {
+        if (!map.has(item.docNo)) {
+          map.set(item.docNo, []);
+        }
+        map.get(item.docNo).push(item);
+      });
+
+      const result = [];
+      map.forEach((rounds, docNo) => {
+        // เรียงให้รอบล่าสุดอยู่บนสุด
+        rounds.sort((a, b) => b.round - a.round);
+        const latest = rounds[0];
+        result.push({
+          docNo: docNo,
+          agency: latest.agency,
+          docType: latest.docType,
+          docRef: latest.docRef,
+          sender: latest.sender,
+          phone: latest.phone,
+          department: latest.department,
+          totalRounds: rounds.length,
+          latestRound: latest,
+          rounds: rounds
+        });
+      });
+
+      return result;
+    }
+
+    function filterAndRender() {
+      const search = document.getElementById('searchInput').value.toLowerCase().trim();
+      const grouped = groupDocuments(allDocuments);
+
+      const filtered = grouped.filter(g => {
+        // Filter by Department
+        if (currentDept !== 'ALL' && g.department !== currentDept) {
+          return false;
+        }
+        // Search filter
+        if (search) {
+          const matchDoc = g.docNo.toLowerCase().includes(search);
+          const matchAgency = (g.agency || '').toLowerCase().includes(search);
+          const matchRecv = (g.latestRound.receiveNo || '').toLowerCase().includes(search);
+          const matchRef = (g.docRef || '').toLowerCase().includes(search);
+          const matchSender = (g.sender || '').toLowerCase().includes(search);
+          const matchProvider = (g.latestRound.providerFinal || '').toLowerCase().includes(search);
+          return matchDoc || matchAgency || matchRecv || matchRef || matchSender || matchProvider;
+        }
+        return true;
+      });
+
+      renderCards(filtered);
+    }
+
+    function renderCards(list) {
+      const container = document.getElementById('cardsContainer');
+      const emptyState = document.getElementById('emptyState');
+
+      if (list.length === 0) {
+        container.classList.add('d-none');
+        emptyState.classList.remove('d-none');
+        return;
+      }
+
+      container.classList.remove('d-none');
+      emptyState.classList.add('d-none');
+
+      container.innerHTML = list.map(item => {
+        const lr = item.latestRound;
+        const isMulti = item.totalRounds > 1;
+
+        let statusBadge = 'bg-secondary';
+        if (lr.returnStatus.includes('ส่งต่อจ่าย')) statusBadge = 'bg-primary';
+        else if (lr.returnStatus.includes('ติดต่อรับคืน')) statusBadge = 'bg-danger';
+        else if (lr.returnStatus.includes('เคาท์เตอร์')) statusBadge = 'bg-info text-dark';
+        else if (lr.returnStatus.includes('ส่งคืน')) statusBadge = 'bg-success';
+
+        return `
+          <div class="col-12 col-md-6 col-xl-4">
+            <div class="doc-card p-3 h-100 d-flex flex-column">
+              <!-- Top Card Header -->
+              <div class="d-flex justify-content-between align-items-start mb-2">
+                <div>
+                  <span class="badge bg-light text-dark border mb-1">${lr.department}</span>
+                  <h5 class="fw-bold text-primary mb-0">${lr.docNo || '-'}</h5>
+                </div>
+                ${isMulti ? `
+                  <button class="btn btn-sm btn-outline-primary round-tag" onclick="showHistory('${lr.docNo}')">
+                    <i class="bi bi-clock-history me-1"></i>เข้า-ออก ${item.totalRounds} รอบ
+                  </button>
+                ` : `
+                  <span class="badge bg-light text-secondary border">รอบที่ 1</span>
+                `}
+              </div>
+
+              <!-- Agency & Document Type -->
+              <div class="mb-3">
+                <div class="fw-semibold text-dark text-truncate" title="${lr.agency || '-'}">
+                  <i class="bi bi-building text-muted me-1"></i>${lr.agency || '-'}
+                </div>
+                <div class="small text-secondary">
+                  <i class="bi bi-file-text me-1"></i>${lr.docType || '-'}
+                </div>
+              </div>
+
+              <!-- รายการรอบล่าสุด (เด่นสุด) -->
+              <div class="p-2 rounded bg-light border mb-3 flex-grow-1">
+                <div class="d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom">
+                  <span class="badge latest-badge px-2 py-1">
+                    <i class="bi bi-star-fill text-warning me-1"></i>รอบล่าสุด (ครั้งที่ ${lr.round})
+                  </span>
+                  <span class="badge ${statusBadge}">${lr.returnStatus || 'รอดำเนินการ'}</span>
+                </div>
+
+                <!-- ข้อมูลทั่วไป 14 รายการตามโจทย์ -->
+                <div class="row g-1 small">
+                  <div class="col-6">
+                    <span class="info-label">EP:</span> <span class="info-value">${lr.ep || '-'}</span>
+                  </div>
+                  <div class="col-6">
+                    <span class="info-label">N/O:</span> <span class="info-value">${lr.no || '-'}</span>
+                  </div>
+                  <div class="col-6">
+                    <span class="info-label">เลขทะเบียนรับ:</span> <span class="info-value text-primary fw-bold">${lr.receiveNo || '-'}</span>
+                  </div>
+                  <div class="col-6">
+                    <span class="info-label">เลขที่ อว:</span> <span class="info-value">${lr.docRef || '-'}</span>
+                  </div>
+                  <div class="col-6">
+                    <span class="info-label">ผู้ส่ง:</span> <span class="info-value">${lr.sender || '-'}</span>
+                  </div>
+                  <div class="col-6">
+                    <span class="info-label">โทรศัพท์:</span> <span class="info-value">${lr.phone || '-'}</span>
+                  </div>
+                  <div class="col-12 border-top my-1 pt-1"></div>
+                  <div class="col-6">
+                    <span class="info-label">วันที่รับ:</span> <span class="info-value">${lr.dateReceive || '-'}</span>
+                  </div>
+                  <div class="col-6">
+                    <span class="info-label">วันที่ลงโต๊ะ:</span> <span class="info-value">${lr.dateDesk || '-'}</span>
+                  </div>
+                  <div class="col-6">
+                    <span class="info-label">วันที่ส่งคืน:</span> <span class="info-value">${lr.dateReturn || '-'}</span>
+                  </div>
+                  <div class="col-6">
+                    <span class="info-label">ผู้ให้บริการ (Final):</span> <span class="info-value text-success fw-bold">${lr.providerFinal || '-'}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Action Buttons -->
+              <div class="d-flex gap-2 pt-2 border-top mt-auto">
+                <button class="btn btn-outline-primary btn-sm flex-fill" onclick="openEditModal('${lr.docNo}', ${lr.round})">
+                  <i class="bi bi-pencil-square me-1"></i>แก้ไข
+                </button>
+                <button class="btn btn-outline-success btn-sm" title="เพิ่มรอบการเข้า-ออกใหม่" onclick="openAddRoundModal('${lr.docNo}')">
+                  <i class="bi bi-plus-lg me-1"></i>เพิ่มรอบใหม่
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Modal แก้ไข
+    function openEditModal(docNo, round) {
+      const item = allDocuments.find(d => d.docNo === docNo && d.round === round);
+      if (!item) return;
+
+      document.getElementById('modalTitle').innerHTML = '<i class="bi bi-pencil-square me-2"></i>แก้ไขเอกสาร: ' + item.docNo + ' (ครั้งที่ ' + item.round + ')';
+      document.getElementById('f_action').value = 'updateDocument';
+      document.getElementById('f_rowId').value = item.rowId;
+      document.getElementById('f_docNo').value = item.docNo;
+      document.getElementById('f_receiveNo').value = item.receiveNo;
+      document.getElementById('f_docRef').value = item.docRef;
+      document.getElementById('f_agency').value = item.agency;
+      document.getElementById('f_docType').value = item.docType;
+      document.getElementById('f_sender').value = item.sender;
+      document.getElementById('f_phone').value = item.phone;
+      document.getElementById('f_ep').value = item.ep;
+      document.getElementById('f_no').value = item.no;
+      document.getElementById('f_dateReceive').value = item.dateReceive;
+      document.getElementById('f_dateDesk').value = item.dateDesk;
+      document.getElementById('f_dateReturn').value = item.dateReturn;
+      document.getElementById('f_returnStatus').value = item.returnStatus || 'ส่งต่อจ่ายทั่วไป';
+      document.getElementById('f_providerFinal').value = item.providerFinal;
+      document.getElementById('f_note').value = item.note || '';
+
+      editModalObj.show();
+    }
+
+    // Modal เพิ่มรอบใหม่
+    function openAddRoundModal(docNo) {
+      const rounds = allDocuments.filter(d => d.docNo === docNo);
+      const latest = rounds.sort((a, b) => b.round - a.round)[0];
+      const newRoundNum = (latest ? latest.round : 0) + 1;
+
+      document.getElementById('modalTitle').innerHTML = '<i class="bi bi-plus-circle me-2"></i>เพิ่มรอบใหม่: ' + docNo + ' (ครั้งที่ ' + newRoundNum + ')';
+      document.getElementById('f_action').value = 'addRound';
+      document.getElementById('f_rowId').value = '';
+      document.getElementById('f_docNo').value = docNo;
+      document.getElementById('f_receiveNo').value = latest ? latest.receiveNo : '';
+      document.getElementById('f_docRef').value = latest ? latest.docRef : '';
+      document.getElementById('f_agency').value = latest ? latest.agency : '';
+      document.getElementById('f_docType').value = latest ? latest.docType : '';
+      document.getElementById('f_sender').value = latest ? latest.sender : '';
+      document.getElementById('f_phone').value = latest ? latest.phone : '';
+      document.getElementById('f_ep').value = latest ? latest.ep : '';
+      document.getElementById('f_no').value = 'N';
+
+      const nowStr = new Date().toLocaleString('th-TH');
+      document.getElementById('f_dateReceive').value = nowStr;
+      document.getElementById('f_dateDesk').value = nowStr;
+      document.getElementById('f_dateReturn').value = '';
+      document.getElementById('f_returnStatus').value = 'กำลังดำเนินการ';
+      document.getElementById('f_providerFinal').value = '';
+      document.getElementById('f_note').value = '';
+
+      editModalObj.show();
+    }
+
+    // บันทึกฟอร์มผ่าน Fetch API หรือ Google Apps Script
+    function submitEditForm() {
+      const payload = {
+        action: document.getElementById('f_action').value,
+        data: {
+          rowId: document.getElementById('f_rowId').value,
+          docNo: document.getElementById('f_docNo').value,
+          receiveNo: document.getElementById('f_receiveNo').value,
+          docRef: document.getElementById('f_docRef').value,
+          agency: document.getElementById('f_agency').value,
+          docType: document.getElementById('f_docType').value,
+          sender: document.getElementById('f_sender').value,
+          phone: document.getElementById('f_phone').value,
+          ep: document.getElementById('f_ep').value,
+          no: document.getElementById('f_no').value,
+          dateReceive: document.getElementById('f_dateReceive').value,
+          dateDesk: document.getElementById('f_dateDesk').value,
+          dateReturn: document.getElementById('f_dateReturn').value,
+          returnStatus: document.getElementById('f_returnStatus').value,
+          providerFinal: document.getElementById('f_providerFinal').value,
+          note: document.getElementById('f_note').value
+        }
+      };
+
+      // อัปเดตข้อมูลในหน้าเว็บทันที
+      if (payload.action === 'updateDocument') {
+        const idx = allDocuments.findIndex(d => String(d.rowId) === String(payload.data.rowId));
+        if (idx !== -1) {
+          allDocuments[idx] = { ...allDocuments[idx], ...payload.data };
+        }
+      } else if (payload.action === 'addRound') {
+        const rounds = allDocuments.filter(d => d.docNo === payload.data.docNo);
+        const newRound = rounds.length + 1;
+        allDocuments.push({
+          ...payload.data,
+          rowId: allDocuments.length + 2,
+          round: newRound,
+          department: currentDept !== 'ALL' ? currentDept : 'งานตรวจจ่าย'
+        });
+      }
+
+      editModalObj.hide();
+      filterAndRender();
+      alert('บันทึกข้อมูลเรียบร้อยแล้ว');
+    }
+
+    // แสดงประวัติการเข้า-ออกหลายรอบ
+    function showHistory(docNo) {
+      const rounds = allDocuments.filter(d => d.docNo === docNo);
+      rounds.sort((a, b) => b.round - a.round); // เรียงล่าสุดอยู่บนสุด
+
+      const html = `
+        <div class="mb-3 p-3 bg-light rounded border">
+          <h5 class="fw-bold text-primary mb-1">เลขที่เอกสาร: ${docNo}</h5>
+          <p class="text-muted small mb-0">${rounds[0].agency || '-'} | ประเภท: ${rounds[0].docType || '-'}</p>
+        </div>
+
+        <div class="timeline position-relative ps-3">
+          ${rounds.map((r, idx) => `
+            <div class="card mb-3 border ${idx === 0 ? 'border-primary shadow-sm' : ''}">
+              <div class="card-header d-flex justify-content-between align-items-center ${idx === 0 ? 'bg-primary text-white' : 'bg-light'}">
+                <span class="fw-bold">
+                  <i class="bi bi-arrow-repeat me-1"></i>ครั้งที่ ${r.round} ${idx === 0 ? '(รอบล่าสุด)' : ''}
+                </span>
+                <span class="badge ${idx === 0 ? 'bg-light text-dark' : 'bg-secondary'}">${r.returnStatus || 'รอดำเนินการ'}</span>
+              </div>
+              <div class="card-body py-2 small">
+                <div class="row g-2">
+                  <div class="col-6"><strong>วันที่รับ:</strong> ${r.dateReceive || '-'}</div>
+                  <div class="col-6"><strong>วันที่ลงโต๊ะ:</strong> ${r.dateDesk || '-'}</div>
+                  <div class="col-6"><strong>วันที่ส่งคืน:</strong> ${r.dateReturn || '-'}</div>
+                  <div class="col-6"><strong>ผู้ให้บริการ:</strong> ${r.providerFinal || '-'}</div>
+                  <div class="col-6"><strong>เลขทะเบียนรับ:</strong> ${r.receiveNo || '-'}</div>
+                  <div class="col-6"><strong>เลขที่ อว:</strong> ${r.docRef || '-'}</div>
+                  ${r.note ? `<div class="col-12"><strong>หมายเหตุ:</strong> ${r.note}</div>` : ''}
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+
+      document.getElementById('historyTimelineContent').innerHTML = html;
+      historyModalObj.show();
+    }
+  </script>
+</body>
+</html>
