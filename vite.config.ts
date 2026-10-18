@@ -60,10 +60,43 @@ export default defineConfig(() => {
                         data.status ?? '',
                         data.editGroup ?? '',
                         data.editDetail ?? '',
+                        // งานสอบทาน (คอลัมน์ Y ถึง AD ในหน้า DATA)
+                        data.reviewReceiveDate ?? '',
+                        data.reviewProvider ?? '',
+                        data.reviewActionDate ?? '',
+                        data.reviewStatus ?? '',
+                        data.reviewEditType ?? '',
+                        data.reviewEditDetail ?? '',
                       ];
 
-                      if (action === 'updateDocument' && data.rowId && Number(data.rowId) >= 3) {
-                        const range = `${sheetName}!A${data.rowId}:X${data.rowId}`;
+                      if (action === 'updateReview' && data.rowId && Number(data.rowId) >= 3) {
+                        // บันทึกเฉพาะช่อง Y:AD สำหรับงานสอบทาน ในชีท DATA
+                        const reviewRange = `${sheetName}!Y${data.rowId}:AD${data.rowId}`;
+                        const reviewValues = [
+                          data.reviewReceiveDate ?? '',
+                          data.reviewProvider ?? '',
+                          data.reviewActionDate ?? '',
+                          data.reviewStatus ?? '',
+                          data.reviewEditType ?? '',
+                          data.reviewEditDetail ?? '',
+                        ];
+                        await fetch(
+                          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(reviewRange)}?valueInputOption=USER_ENTERED`,
+                          {
+                            method: 'PUT',
+                            headers: {
+                              Authorization: authHeader,
+                              'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                              range: reviewRange,
+                              majorDimension: 'ROWS',
+                              values: [reviewValues],
+                            }),
+                          }
+                        ).catch((e) => console.error('Dev proxy sheet error (updateReview):', e));
+                      } else if (action === 'updateDocument' && data.rowId && Number(data.rowId) >= 3) {
+                        const range = `${sheetName}!A${data.rowId}:AD${data.rowId}`;
                         await fetch(
                           `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
                           {
@@ -80,7 +113,7 @@ export default defineConfig(() => {
                           }
                         ).catch((e) => console.error('Dev proxy sheet error:', e));
                       } else {
-                        const range = `${sheetName}!A:X`;
+                        const range = `${sheetName}!A:AD`;
                         await fetch(
                           `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
                           {

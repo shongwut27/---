@@ -5,6 +5,7 @@ import {
   saveLocalDocuments,
   fetchFromGoogleSheet,
   syncToGas,
+  batchSaveToGoogleSheet,
   getStoredGasUrl,
   setStoredGasUrl,
 } from './services/sheetService';
@@ -15,12 +16,19 @@ import { DocumentCard } from './components/DocumentCard';
 import { HistoryModal } from './components/HistoryModal';
 import { EditDocumentModal } from './components/EditDocumentModal';
 import { InspectionRecordModal } from './components/InspectionRecordModal';
+import { ReviewRecordModal, isReviewProviderFinal } from './components/ReviewRecordModal';
+import { FinanceRecordModal } from './components/FinanceRecordModal';
+import { BudgetRecordModal } from './components/BudgetRecordModal';
+import { BudgetCompletedModal } from './components/BudgetCompletedModal';
+import { BatchReceiveModal } from './components/BatchReceiveModal';
 import { NewDocModal } from './components/NewDocModal';
 import { GasCodeModal } from './components/GasCodeModal';
 import { LoginModal } from './components/LoginModal';
+import { ReportDashboard } from './components/ReportDashboard';
 import { initAuth, logout } from './services/authService';
 import { INITIAL_SHEET_ID } from './data/initialData';
-import { FileSearch, FolderX, CheckCircle, RefreshCw, ClipboardCheck } from 'lucide-react';
+import { parseThaiDate } from './utils/workingDays';
+import { FileSearch, FolderX, CheckCircle, RefreshCw, ClipboardCheck, Inbox } from 'lucide-react';
 
 export default function App() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -29,10 +37,22 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [returnStatusFilter, setReturnStatusFilter] = useState<string>('ALL');
   const [selectedProvider, setSelectedProvider] = useState<string>('ALL');
-  const [workStatusFilter, setWorkStatusFilter] = useState<'ALL' | 'PENDING' | 'COMPLETED'>('ALL');
+  const [workStatusFilter, setWorkStatusFilter] = useState<'ALL' | 'PENDING' | 'COMPLETED' | 'RECEIVED'>('ALL');
   const [multiRoundOnly, setMultiRoundOnly] = useState<boolean>(false);
+  const [timeFilter, setTimeFilter] = useState<'ALL' | 'TODAY' | 'THIS_MONTH' | 'CUSTOM'>('ALL');
+  const [customDate, setCustomDate] = useState<string>('');
+  const [selectedDocTypes, setSelectedDocTypes] = useState<string[]>([]);
   const [gasUrl, setGasUrl] = useState<string>(getStoredGasUrl());
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [currentView, setCurrentView] = useState<'CARDS' | 'REPORT'>('CARDS');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    return (localStorage.getItem('document_tracker_theme') as 'light' | 'dark') || 'light';
+  });
+
+  const handleToggleTheme = (newTheme: 'light' | 'dark') => {
+    setTheme(newTheme);
+    localStorage.setItem('document_tracker_theme', newTheme);
+  };
   const [userEmail, setUserEmail] = useState<string | null>(() => {
     return localStorage.getItem('document_tracker_user_email');
   });
@@ -67,6 +87,15 @@ export default function App() {
   const [editItem, setEditItem] = useState<DocumentItem | null>(null);
   const [inspectItem, setInspectItem] = useState<DocumentItem | null>(null);
   const [isInspectModalOpen, setIsInspectModalOpen] = useState<boolean>(false);
+  const [reviewItem, setReviewItem] = useState<DocumentItem | null>(null);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
+  const [financeItem, setFinanceItem] = useState<DocumentItem | null>(null);
+  const [isFinanceModalOpen, setIsFinanceModalOpen] = useState<boolean>(false);
+  const [budgetItem, setBudgetItem] = useState<DocumentItem | null>(null);
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState<boolean>(false);
+  const [isBudgetCompletedModalOpen, setIsBudgetCompletedModalOpen] = useState<boolean>(false);
+  const [budgetCompletedPeriod, setBudgetCompletedPeriod] = useState<'today' | 'this_month' | 'all'>('today');
+  const [isBatchReceiveOpen, setIsBatchReceiveOpen] = useState<boolean>(false);
   const [newDocTarget, setNewDocTarget] = useState<GroupedDocument | null>(null);
   const [isNewDocOpen, setIsNewDocOpen] = useState<boolean>(false);
   const [isGasCodeOpen, setIsGasCodeOpen] = useState<boolean>(false);
@@ -83,17 +112,71 @@ export default function App() {
     setIsLoading(true);
     try {
       const liveData = await fetchFromGoogleSheet();
-      setDocuments(liveData);
-      saveLocalDocuments(liveData);
+      setDocuments((prevDocs) => {
+        // Merge with existing local state for review & finance fields by exact rowId / id in case Google Sheets hasn't finished propagating
+        const merged = liveData.map((liveItem) => {
+          const prevItem = prevDocs.find(
+            (p) =>
+              p.id === liveItem.id ||
+              (p.rowId && liveItem.rowId && Number(p.rowId) === Number(liveItem.rowId))
+          );
+          if (!prevItem) return liveItem;
+          return {
+            ...liveItem,
+            // งานตรวจจ่าย (คอลัมน์ S:Y): ประเภทเอกสารย่อย (S) สำหรับประกายมาศ, QA (T) สำหรับ QA
+            subType: (liveItem.providerFinal?.includes('ประกายมาศ') || liveItem.providerAuto?.includes('ประกายมาศ'))
+              ? (liveItem.subType?.trim() || prevItem.subType?.trim() || '')
+              : '',
+            qa: liveItem.qa?.trim() || prevItem.qa?.trim() || (!liveItem.providerFinal?.includes('ประกายมาศ') ? (liveItem.subType?.trim() || prevItem.subType?.trim() || '') : ''),
+            actionDate: liveItem.actionDate?.trim() || prevItem.actionDate?.trim() || '',
+            action: liveItem.action?.trim() || prevItem.action?.trim() || '',
+            status: liveItem.status?.trim() || prevItem.status?.trim() || '',
+            editGroup: liveItem.editGroup?.trim() || prevItem.editGroup?.trim() || '',
+            editDetail: liveItem.editDetail?.trim() || prevItem.editDetail?.trim() || '',
+            returnStatus: liveItem.returnStatus?.trim() || prevItem.returnStatus?.trim() || '',
+
+            reviewReceiveDate: liveItem.reviewReceiveDate?.trim() || prevItem.reviewReceiveDate?.trim() || '',
+            reviewProvider: liveItem.reviewProvider?.trim() || prevItem.reviewProvider?.trim() || '',
+            reviewActionDate: liveItem.reviewActionDate?.trim() || prevItem.reviewActionDate?.trim() || '',
+            reviewStatus: liveItem.reviewStatus?.trim() || prevItem.reviewStatus?.trim() || '',
+            reviewEditType: liveItem.reviewEditType?.trim() || prevItem.reviewEditType?.trim() || '',
+            reviewEditDetail: liveItem.reviewEditDetail?.trim() || prevItem.reviewEditDetail?.trim() || '',
+            financeReceiveDate: liveItem.financeReceiveDate?.trim() || prevItem.financeReceiveDate?.trim() || '',
+            financePaymentType: liveItem.financePaymentType?.trim() || prevItem.financePaymentType?.trim() || '',
+            financePreparer: liveItem.financePreparer?.trim() || prevItem.financePreparer?.trim() || '',
+            financeUrgentCheck: liveItem.financeUrgentCheck?.trim() || prevItem.financeUrgentCheck?.trim() || '',
+            financeActionDate: liveItem.financeActionDate?.trim() || prevItem.financeActionDate?.trim() || '',
+            financeReviewDate: liveItem.financeReviewDate?.trim() || prevItem.financeReviewDate?.trim() || '',
+            disbursementDate: liveItem.disbursementDate?.trim() || prevItem.disbursementDate?.trim() || '',
+            disbursementPayer: liveItem.disbursementPayer?.trim() || prevItem.disbursementPayer?.trim() || '',
+            disbursementNotifyDate: liveItem.disbursementNotifyDate?.trim() || prevItem.disbursementNotifyDate?.trim() || '',
+            disbursementActivityStartDate: liveItem.disbursementActivityStartDate?.trim() || prevItem.disbursementActivityStartDate?.trim() || '',
+            disbursementActivityEndDate: liveItem.disbursementActivityEndDate?.trim() || prevItem.disbursementActivityEndDate?.trim() || '',
+            financeIssueDate: liveItem.financeIssueDate?.trim() || prevItem.financeIssueDate?.trim() || '',
+            financeIssueDetail: liveItem.financeIssueDetail?.trim() || prevItem.financeIssueDetail?.trim() || '',
+            budgetActionDate: liveItem.budgetActionDate?.trim() || prevItem.budgetActionDate?.trim() || '',
+            budgetFR: liveItem.budgetFR?.trim() || prevItem.budgetFR?.trim() || '',
+            budgetFC: liveItem.budgetFC?.trim() || prevItem.budgetFC?.trim() || '',
+            budgetPR: liveItem.budgetPR?.trim() || prevItem.budgetPR?.trim() || '',
+            budgetStatus: liveItem.budgetStatus?.trim() || prevItem.budgetStatus?.trim() || '',
+            budgetReceiveDate: liveItem.budgetReceiveDate?.trim() || prevItem.budgetReceiveDate?.trim() || '',
+            budgetCoverDate: liveItem.budgetCoverDate?.trim() || prevItem.budgetCoverDate?.trim() || '',
+            budgetDocSetDate: liveItem.budgetDocSetDate?.trim() || prevItem.budgetDocSetDate?.trim() || '',
+          };
+        });
+        saveLocalDocuments(merged);
+        return merged;
+      });
       if (showNotice) {
         showToast(`✅ ซิงค์ข้อมูลล่าสุดจาก Google Sheet เรียบร้อยแล้ว (${liveData.length} รายการ)`);
       }
     } catch (err) {
       console.warn('Could not fetch live from Google Sheets, using local/cached data:', err);
-      const fallback = getLocalDocuments();
-      if (fallback && fallback.length > 0) {
-        setDocuments(fallback);
-      }
+      setDocuments((prev) => {
+        if (prev && prev.length > 0) return prev;
+        const fallback = getLocalDocuments();
+        return fallback && fallback.length > 0 ? fallback : prev;
+      });
       if (showNotice) {
         showToast('⚠️ ไม่สามารถเชื่อมต่อ Google Sheet ได้ กำลังใช้ข้อมูลสำรอง');
       }
@@ -135,47 +218,108 @@ export default function App() {
     };
   }, [loadData]);
 
-  // Group documents by docNo (เลขที่เอกสาร) or receiveNo (เลขทะเบียนรับ) and sort rounds (latest first)
+  // เอกสารทั้งหมด (งานตรวจจ่าย) คือเอกสารที่มีข้อมูลอยู่ใน google sheet ทุกแถว (ตัดส่วนเข้า-ออกหลายรอบออก)
   const groupedDocuments = useMemo<GroupedDocument[]>(() => {
-    const map = new Map<string, DocumentItem[]>();
-
-    documents.forEach((item) => {
-      const key = (item.docNo && item.docNo.trim() !== '')
-        ? item.docNo.trim()
-        : (item.receiveNo && item.receiveNo.trim() !== '')
-          ? `REC-${item.receiveNo.trim()}`
-          : (item.docRef && item.docRef.trim() !== '')
-            ? `REF-${item.docRef.trim()}`
-            : `row-${item.rowId || item.id}`;
-      if (!map.has(key)) {
-        map.set(key, []);
-      }
-      map.get(key)!.push(item);
-    });
-
-    const result: GroupedDocument[] = [];
-
-    map.forEach((rounds, docKey) => {
-      // Sort rounds descending: Round N (latest) is index 0
-      rounds.sort((a, b) => b.round - a.round);
-      const latest = rounds[0];
-
-      result.push({
-        docNo: latest.docNo || latest.receiveNo || latest.docRef || docKey,
-        agency: latest.agency,
-        docType: latest.docType,
-        docRef: latest.docRef,
-        sender: latest.sender,
-        phone: latest.phone,
-        department: latest.department,
-        totalRounds: rounds.length,
-        latestRound: latest,
-        rounds: rounds,
-      });
-    });
-
-    return result;
+    return documents.map((item) => ({
+      docNo: item.docNo || item.receiveNo || item.docRef || `row-${item.rowId || item.id}`,
+      agency: item.agency,
+      docType: item.docType,
+      docRef: item.docRef,
+      sender: item.sender,
+      phone: item.phone,
+      department: item.department,
+      totalRounds: 1,
+      latestRound: item,
+      rounds: [item],
+    }));
   }, [documents]);
+
+  // Helper ตรวจสอบเอกสารที่เข้าสู่ "งานสอบทาน"
+  // 1. เข้ามาจากงานธุรการ หรือเอกสารระบุฝ่ายงานสอบทาน
+  // 2. มีผู้ให้บริการ (Final) เป็นหนึ่งในรายชื่อของงานสอบทาน (คอลัมน์ P)
+  // 3. เข้ามาจากงานตรวจจ่ายที่มีการระบุสถานะ "ส่งสอบทาน" (คอลัมน์ V)
+  // 4. มีการบันทึกข้อมูลงานสอบทานแล้ว (คอลัมน์ Y-AD)
+  const isDocInReview = useCallback((doc: GroupedDocument): boolean => {
+    const lr = doc.latestRound;
+    if (!lr) return false;
+    if (doc.department === 'งานสอบทาน' || lr.department === 'งานสอบทาน') return true;
+    if (isReviewProviderFinal(lr.providerFinal) || doc.rounds.some((r) => isReviewProviderFinal(r.providerFinal))) return true;
+    if (lr.status && lr.status.includes('ส่งสอบทาน')) return true;
+    if (doc.rounds.some((r) => r.status && r.status.includes('ส่งสอบทาน'))) return true;
+    if (lr.returnStatus && lr.returnStatus.includes('ส่งสอบทาน')) return true;
+    if (
+      Boolean(
+        (lr.reviewReceiveDate && lr.reviewReceiveDate.trim() !== '') ||
+        (lr.reviewProvider && lr.reviewProvider.trim() !== '') ||
+        (lr.reviewActionDate && lr.reviewActionDate.trim() !== '') ||
+        (lr.reviewStatus && lr.reviewStatus.trim() !== '') ||
+        (lr.reviewEditType && lr.reviewEditType.trim() !== '') ||
+        (lr.reviewEditDetail && lr.reviewEditDetail.trim() !== '')
+      )
+    ) {
+      return true;
+    }
+    return false;
+  }, []);
+
+  // Helper ตรวจสอบเอกสารที่เข้าสู่ "งานการเงิน" (งานเบิกจ่ายเงิน)
+  // เอกสารจะเข้ามา 2 ทาง:
+  // ทางที่ 1: มาจาก ธุรการรับจะเลือกผู้ให้บริการเป็น "งานเบิกจ่ายเงิน"
+  // ทางที่ 2: มาจากงานสอบทาน ในช่องสถานะเป็น "ถูกต้อง/ส่งต่องานจ่ายเงิน"
+  const isDocInFinance = useCallback((doc: GroupedDocument): boolean => {
+    const lr = doc.latestRound;
+    if (!lr) return false;
+
+    // ทางที่ 1: มาจาก ธุรการรับจะเลือกผู้ให้บริการเป็น "งานเบิกจ่ายเงิน"
+    if (
+      doc.department === 'งานการเงิน' ||
+      (doc.department as string) === 'งานเบิกจ่ายเงิน' ||
+      lr.department === 'งานการเงิน' ||
+      (lr.department as string) === 'งานเบิกจ่ายเงิน' ||
+      lr.providerFinal === 'งานเบิกจ่ายเงิน' ||
+      lr.providerChange === 'งานเบิกจ่ายเงิน' ||
+      lr.providerAuto === 'งานเบิกจ่ายเงิน' ||
+      (lr.providerFinal && lr.providerFinal.includes('งานเบิกจ่ายเงิน')) ||
+      (lr.providerChange && lr.providerChange.includes('งานเบิกจ่ายเงิน')) ||
+      (lr.providerAuto && lr.providerAuto.includes('งานเบิกจ่ายเงิน'))
+    ) {
+      return true;
+    }
+
+    // ทางที่ 2: มาจากงานสอบทาน ในช่องสถานะเป็น "ถูกต้อง/ส่งต่องานจ่ายเงิน"
+    if (
+      lr.reviewStatus === 'ถูกต้อง/ส่งต่องานจ่ายเงิน' ||
+      (lr.reviewStatus && (lr.reviewStatus.includes('ถูกต้อง/ส่งต่องานจ่ายเงิน') || lr.reviewStatus.includes('ส่งต่องานจ่ายเงิน') || lr.reviewStatus.includes('ส่งต่อจ่าย')))
+    ) {
+      return true;
+    }
+
+    // หรือมีข้อมูลการบันทึกในส่วนของงานการเงินแล้ว (คอลัมน์ AE ถึง AQ)
+    if (
+      Boolean(
+        (lr.financeReceiveDate && lr.financeReceiveDate.trim() !== '') ||
+        (lr.financePaymentType && lr.financePaymentType.trim() !== '') ||
+        (lr.financePreparer && lr.financePreparer.trim() !== '') ||
+        (lr.financeActionDate && lr.financeActionDate.trim() !== '') ||
+        (lr.financeReviewDate && lr.financeReviewDate.trim() !== '') ||
+        (lr.disbursementDate && lr.disbursementDate.trim() !== '') ||
+        (lr.disbursementPayer && lr.disbursementPayer.trim() !== '') ||
+        (lr.disbursementNotifyDate && lr.disbursementNotifyDate.trim() !== '') ||
+        (lr.financeIssueDate && lr.financeIssueDate.trim() !== '') ||
+        (lr.financeIssueDetail && lr.financeIssueDetail.trim() !== '')
+      )
+    ) {
+      return true;
+    }
+
+    return false;
+  }, []);
+
+  // Helper to determine if a doc belongs to / appears in Budget
+  // หน้างานงบประมาณ: งานที่สามารถบันทึกได้จะเป็นงานทุกประเภทที่เข้ามาในระบบ
+  const isDocInBudget = useCallback((_doc: GroupedDocument) => {
+    return true;
+  }, []);
 
   // Department counts & statistics
   const counts = useMemo(() => {
@@ -190,16 +334,31 @@ export default function App() {
 
     groupedDocuments.forEach((doc) => {
       c.ALL = (c.ALL || 0) + 1;
+      const isReviewFinal = isReviewProviderFinal(doc.latestRound?.providerFinal) || doc.rounds.some((r) => isReviewProviderFinal(r.providerFinal));
+
       if (doc.department && c[doc.department] !== undefined) {
-        c[doc.department] = (c[doc.department] || 0) + 1;
+        if (doc.department === 'งานตรวจจ่าย' && isReviewFinal) {
+          // หากผู้ให้บริการ Final เป็นงานสอบทาน ไม่ต้องนับ/แสดงในหน้างานตรวจ
+        } else {
+          c[doc.department] = (c[doc.department] || 0) + 1;
+        }
+      }
+      if (isDocInReview(doc) && doc.department !== 'งานสอบทาน') {
+        c['งานสอบทาน'] = (c['งานสอบทาน'] || 0) + 1;
+      }
+      if (isDocInFinance(doc) && doc.department !== 'งานการเงิน') {
+        c['งานการเงิน'] = (c['งานการเงิน'] || 0) + 1;
       }
       if (doc.totalRounds > 1) {
         c.multiRound = (c.multiRound || 0) + 1;
       }
     });
 
+    // งานงบประมาณ: งานทุกประเภทที่เข้ามาในระบบสามารถบันทึกได้
+    c['งานงบประมาณ'] = groupedDocuments.length;
+
     return c;
-  }, [groupedDocuments]);
+  }, [groupedDocuments, isDocInReview, isDocInFinance, isDocInBudget]);
 
   // List of unique providers available in current dataset
   const availableProviders = useMemo(() => {
@@ -209,83 +368,108 @@ export default function App() {
       if (p && p !== '-' && p !== 'ไม่เลือก') {
         set.add(p);
       }
+      if (doc.reviewProvider && doc.reviewProvider.trim() && doc.reviewProvider !== '-' && doc.reviewProvider !== 'ไม่เลือก') {
+        set.add(doc.reviewProvider.trim());
+      }
+      if (doc.financePreparer && doc.financePreparer.trim() && doc.financePreparer !== '-' && doc.financePreparer !== 'ไม่เลือก') {
+        set.add(doc.financePreparer.trim());
+      }
+      if (doc.disbursementPayer && doc.disbursementPayer.trim() && doc.disbursementPayer !== '-' && doc.disbursementPayer !== 'ไม่เลือก') {
+        set.add(doc.disbursementPayer.trim());
+      }
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'th'));
   }, [documents]);
 
-  // Counts for work status (all, pending, completed)
-  const workStatusCounts = useMemo(() => {
-    let all = 0;
-    let pending = 0;
-    let completed = 0;
-
-    groupedDocuments.forEach((doc) => {
-      if (currentDept !== 'ALL' && doc.department !== currentDept) {
-        return;
-      }
-      // If a provider is selected, count only for this provider ("ของคนนี้ทั้งหมด")
-      if (selectedProvider !== 'ALL') {
-        const p = doc.latestRound.providerFinal?.trim() || doc.latestRound.providerChange?.trim() || doc.latestRound.providerAuto?.trim() || '';
-        if (p !== selectedProvider) {
-          return;
-        }
-      }
-
-      all++;
-      const hasStatus = Boolean(
-        (doc.latestRound.returnStatus && doc.latestRound.returnStatus.trim() !== '') ||
-        (doc.latestRound.status && doc.latestRound.status.trim() !== '')
-      );
-      if (hasStatus) {
-        // 2. งานที่ทำเสร็จ - คืองานทั้งหมดที่ลงข้อมูลแล้ว
-        completed++;
-      } else {
-        // 1. งานที่ค้างในมือ - คืองานที่ส่งเข้ามาลงโต๊ะนี้แล้วยังไม่มีการลงสถานะ
-        pending++;
+  // List of unique docTypes available in current dataset
+  const availableDocTypes = useMemo(() => {
+    const set = new Set<string>();
+    documents.forEach((doc) => {
+      const dt = doc.docType?.trim();
+      if (dt && dt !== '-' && dt !== '') {
+        set.add(dt);
       }
     });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'th'));
+  }, [documents]);
 
-    return { all, pending, completed };
-  }, [groupedDocuments, currentDept, selectedProvider]);
-
-  // Filtered documents list for current view
-  const filteredDocuments = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-
-    return groupedDocuments.filter((doc) => {
+  // Deduplicated documents for current department & provider (แสดงเฉพาะรอบล่าสุดหากเลขทะเบียนรับเดียวกันเข้ามาหลายรอบ)
+  const currentDeptDeduplicatedDocs = useMemo(() => {
+    const deptDocs = groupedDocuments.filter((doc) => {
       // 1. Department Filter
-      if (currentDept !== 'ALL' && doc.department !== currentDept) {
+      if (currentDept === 'งานสอบทาน') {
+        if (!isDocInReview(doc)) return false;
+      } else if (currentDept === 'งานการเงิน') {
+        if (!isDocInFinance(doc)) return false;
+      } else if (currentDept === 'งานงบประมาณ') {
+        if (!isDocInBudget(doc)) return false;
+      } else if (currentDept === 'งานตรวจจ่าย') {
+        const isReviewFinal = isReviewProviderFinal(doc.latestRound?.providerFinal) || doc.rounds.some((r) => isReviewProviderFinal(r.providerFinal));
+        if (isReviewFinal) return false;
+        if (doc.department !== 'งานตรวจจ่าย') return false;
+      } else if (currentDept !== 'ALL' && doc.department !== currentDept) {
         return false;
       }
 
-      // 2. Multi-round only filter
-      if (multiRoundOnly && doc.totalRounds <= 1) {
-        return false;
-      }
-
-      // 3. Provider filter (ผู้ให้บริการ)
+      // 2. Provider filter (ผู้ให้บริการ)
       if (selectedProvider !== 'ALL') {
-        const p = doc.latestRound.providerFinal?.trim() || doc.latestRound.providerChange?.trim() || doc.latestRound.providerAuto?.trim() || '';
+        const p = currentDept === 'งานสอบทาน' && doc.latestRound.reviewProvider?.trim()
+          ? doc.latestRound.reviewProvider.trim()
+          : currentDept === 'งานการเงิน' && (doc.latestRound.financePreparer?.trim() || doc.latestRound.disbursementPayer?.trim())
+          ? (doc.latestRound.financePreparer?.trim() || doc.latestRound.disbursementPayer?.trim() || '')
+          : (doc.latestRound.providerFinal?.trim() || doc.latestRound.providerChange?.trim() || doc.latestRound.providerAuto?.trim() || '');
         if (p !== selectedProvider) {
           return false;
         }
       }
 
-      // 4. Work status filter:
-      // 1. งานที่ค้างในมือ - คืองานที่ส่งเข้ามาลงโต๊ะนี้แล้วยังไม่มีการลงสถานะ
-      // 2. งานที่ทำเสร็จ - คืองานทั้งหมดที่ลงข้อมูลแล้ว
-      // 3. งานทั้งหมด - คืองานที่เข้ามาของคนนี้ทั้งหมด
-      const hasStatus = Boolean(
-        (doc.latestRound.returnStatus && doc.latestRound.returnStatus.trim() !== '') ||
-        (doc.latestRound.status && doc.latestRound.status.trim() !== '')
-      );
-      if (workStatusFilter === 'PENDING') {
-        if (hasStatus) return false;
-      } else if (workStatusFilter === 'COMPLETED') {
-        if (!hasStatus) return false;
+      return true;
+    });
+
+    // หากมีเลขทะเบียนรับเดียวกันเข้ามาหลายรอบ ให้แสดงเฉพาะรอบล่าสุด
+    const recvMap = new Map<string, GroupedDocument>();
+    const deduplicatedResult: GroupedDocument[] = [];
+
+    for (const doc of deptDocs) {
+      const recv = (doc.latestRound?.receiveNo || '').trim();
+      if (recv) {
+        if (!recvMap.has(recv)) {
+          recvMap.set(recv, doc);
+          deduplicatedResult.push(doc);
+        } else {
+          const existing = recvMap.get(recv)!;
+          const existingRound = existing.latestRound?.round || 0;
+          const curRound = doc.latestRound?.round || 0;
+          const existingRow = Number(existing.latestRound?.rowId) || 0;
+          const curRow = Number(doc.latestRound?.rowId) || 0;
+
+          if (curRound > existingRound || (curRound === existingRound && curRow > existingRow)) {
+            const idx = deduplicatedResult.indexOf(existing);
+            if (idx !== -1) {
+              deduplicatedResult[idx] = doc;
+            }
+            recvMap.set(recv, doc);
+          }
+        }
+      } else {
+        deduplicatedResult.push(doc);
+      }
+    }
+
+    return deduplicatedResult;
+  }, [groupedDocuments, currentDept, selectedProvider, isDocInReview, isDocInFinance, isDocInBudget]);
+
+  // Base filtered documents for current department & general filters (ก่อนแยกตาม workStatusFilter)
+  const baseFilteredDocs = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+
+    return currentDeptDeduplicatedDocs.filter((doc) => {
+      // 1. Multi-round only filter
+      if (multiRoundOnly && doc.totalRounds <= 1) {
+        return false;
       }
 
-      // 5. Return Status filter
+      // 2. Return Status filter
       if (returnStatusFilter !== 'ALL') {
         const status = doc.latestRound.returnStatus || '';
         if (!status.includes(returnStatusFilter)) {
@@ -293,7 +477,7 @@ export default function App() {
         }
       }
 
-      // 6. Real-time Search filter
+      // 3. Real-time Search filter
       if (q) {
         const matchDocNo = (doc.docNo || '').toLowerCase().includes(q);
         const matchAgency = (doc.agency || '').toLowerCase().includes(q);
@@ -304,29 +488,290 @@ export default function App() {
         const matchProvider = (doc.latestRound.providerFinal || '').toLowerCase().includes(q);
         const matchType = (doc.docType || '').toLowerCase().includes(q);
 
-        return (
-          matchDocNo ||
-          matchAgency ||
-          matchRecv ||
-          matchRef ||
-          matchSender ||
-          matchPhone ||
-          matchProvider ||
-          matchType
-        );
+        if (
+          !matchDocNo &&
+          !matchAgency &&
+          !matchRecv &&
+          !matchRef &&
+          !matchSender &&
+          !matchPhone &&
+          !matchProvider &&
+          !matchType
+        ) {
+          return false;
+        }
+      }
+
+      // 4. Time Period Filter (วันนี้, เดือนนี้, ทั้งหมด, หรือเลือกวันที่)
+      if (timeFilter !== 'ALL') {
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth();
+        const currentDate = now.getDate();
+
+        const lr = doc.latestRound;
+        const candidateDates: (string | undefined)[] = [
+          lr?.dateReceive,
+          lr?.dateDesk,
+          lr?.actionDate,
+          lr?.dateReturn,
+          lr?.reviewReceiveDate,
+          lr?.reviewActionDate,
+          lr?.financeReceiveDate,
+          lr?.financeActionDate,
+          lr?.disbursementDate,
+          lr?.budgetReceiveDate,
+          lr?.budgetActionDate,
+          lr?.budgetCoverDate,
+          lr?.budgetDocSetDate,
+        ];
+
+        const parsedList = candidateDates
+          .filter((str): str is string => Boolean(str && str.trim() !== '' && str.trim() !== '-'))
+          .map((str) => parseThaiDate(str))
+          .filter((d): d is Date => d !== null);
+
+        if (parsedList.length === 0) {
+          return false;
+        }
+
+        if (timeFilter === 'TODAY') {
+          const hasToday = parsedList.some(
+            (d) => d.getFullYear() === currentYear && d.getMonth() === currentMonth && d.getDate() === currentDate
+          );
+          if (!hasToday) return false;
+        } else if (timeFilter === 'THIS_MONTH') {
+          const hasThisMonth = parsedList.some(
+            (d) => d.getFullYear() === currentYear && d.getMonth() === currentMonth
+          );
+          if (!hasThisMonth) return false;
+        } else if (timeFilter === 'CUSTOM' && customDate) {
+          const [cYearStr, cMonthStr, cDayStr] = customDate.split('-');
+          const targetYear = parseInt(cYearStr, 10);
+          const targetMonth = parseInt(cMonthStr, 10) - 1;
+          const targetDay = parseInt(cDayStr, 10);
+
+          const matchesCustom = parsedList.some(
+            (d) => d.getFullYear() === targetYear && d.getMonth() === targetMonth && d.getDate() === targetDay
+          );
+          if (!matchesCustom) return false;
+        }
+      }
+
+      // 5. Multi-select Document Type filter (เลือกได้หลายประเภท)
+      if (selectedDocTypes.length > 0) {
+        const type = (doc.docType || doc.latestRound?.docType || '').trim();
+        if (!selectedDocTypes.includes(type)) {
+          return false;
+        }
       }
 
       return true;
     });
-  }, [
-    groupedDocuments,
-    currentDept,
-    multiRoundOnly,
-    selectedProvider,
-    workStatusFilter,
-    returnStatusFilter,
-    searchQuery,
-  ]);
+  }, [currentDeptDeduplicatedDocs, multiRoundOnly, returnStatusFilter, searchQuery, timeFilter, customDate, selectedDocTypes]);
+
+  // Counts for work status (1.เอกสารที่เข้ามาทั้งหมด = 2.บันทึกรับแล้ว + 3.ดำเนินการแล้ว + 4.งานค้างในมือ)
+  const workStatusCounts = useMemo(() => {
+    let all = baseFilteredDocs.length;
+    let pending = 0;
+    let completed = 0;
+    let received = 0;
+
+    baseFilteredDocs.forEach((doc) => {
+      if (currentDept === 'งานสอบทาน') {
+        const isReviewDone = Boolean(doc.latestRound.reviewStatus && doc.latestRound.reviewStatus.trim() !== '' && doc.latestRound.reviewStatus.trim() !== '-');
+        const isReviewReceived = Boolean(
+          (doc.latestRound.reviewReceiveDate && doc.latestRound.reviewReceiveDate.trim() !== '' && doc.latestRound.reviewReceiveDate.trim() !== '-') ||
+          (doc.latestRound.reviewProvider && doc.latestRound.reviewProvider.trim() !== '' && doc.latestRound.reviewProvider.trim() !== '-' && doc.latestRound.reviewProvider.trim() !== 'ไม่เลือก')
+        );
+
+        // 3. ดำเนินการแล้ว (COMPLETED - สีเขียว): บันทึกสถานะการตรวจแล้ว
+        if (isReviewDone) {
+          completed++;
+        }
+        // 2. บันทึกรับแล้ว (RECEIVED - สีส้ม): กดรับแล้วแต่ยังไม่ได้บันทึกสถานะ
+        else if (isReviewReceived) {
+          received++;
+        }
+        // 4. งานค้างในมือ (PENDING - สีแดง): ยังไม่ได้บันทึกรับเอกสาร
+        else {
+          pending++;
+        }
+      } else if (currentDept === 'งานการเงิน') {
+        const isFinanceCompleted = Boolean(doc.latestRound.disbursementDate && doc.latestRound.disbursementDate.trim() !== '');
+        const isFinanceReceived = Boolean(
+          (doc.latestRound.financeReceiveDate && doc.latestRound.financeReceiveDate.trim() !== '') ||
+          (doc.latestRound.financePreparer && doc.latestRound.financePreparer.trim() !== '') ||
+          (doc.latestRound.financePaymentType && doc.latestRound.financePaymentType.trim() !== '')
+        );
+        if (isFinanceCompleted) {
+          completed++;
+        } else if (isFinanceReceived) {
+          received++;
+        } else {
+          pending++;
+        }
+      } else if (currentDept === 'งานงบประมาณ') {
+        const isBudgetCompleted = Boolean(
+          (doc.latestRound.budgetActionDate && doc.latestRound.budgetActionDate.trim() !== '') ||
+          (doc.latestRound.budgetStatus && doc.latestRound.budgetStatus.trim() !== '')
+        );
+        const isBudgetReceived = Boolean(
+          (doc.latestRound.budgetReceiveDate && doc.latestRound.budgetReceiveDate.trim() !== '') ||
+          (doc.latestRound.budgetFR && doc.latestRound.budgetFR.trim() !== '') ||
+          (doc.latestRound.budgetFC && doc.latestRound.budgetFC.trim() !== '') ||
+          (doc.latestRound.budgetPR && doc.latestRound.budgetPR.trim() !== '')
+        );
+        if (isBudgetCompleted) {
+          completed++;
+        } else if (isBudgetReceived) {
+          received++;
+        } else {
+          pending++;
+        }
+      } else {
+        const hasRX = Boolean(
+          (doc.latestRound.subType && doc.latestRound.subType.trim() !== '') ||
+          (doc.latestRound.qa && doc.latestRound.qa.trim() !== '') ||
+          (doc.latestRound.actionDate && doc.latestRound.actionDate.trim() !== '') ||
+          (doc.latestRound.action && doc.latestRound.action.trim() !== '') ||
+          (doc.latestRound.status && doc.latestRound.status.trim() !== '') ||
+          (doc.latestRound.editGroup && doc.latestRound.editGroup.trim() !== '') ||
+          (doc.latestRound.editDetail && doc.latestRound.editDetail.trim() !== '')
+        );
+        if (hasRX) {
+          completed++;
+        } else {
+          pending++;
+        }
+      }
+    });
+
+    return { all, pending, completed, received };
+  }, [baseFilteredDocs, currentDept]);
+
+  // List of completed budget documents categorized by Today, This Month, All (สำหรับงานงบประมาณ - คำนวณล้อตามตัวกรองที่เลือก)
+  const { budgetTodayDocs, budgetThisMonthDocs, budgetAllDocs } = useMemo(() => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const currentDate = now.getDate();
+
+    const todayList: GroupedDocument[] = [];
+    const monthList: GroupedDocument[] = [];
+    const allList: GroupedDocument[] = [];
+
+    // All documents where budget work is completed / recorded in baseFilteredDocs
+    baseFilteredDocs.forEach((doc) => {
+      const lr = doc.latestRound;
+      if (!lr) return;
+
+      const isCompleted = Boolean(
+        (lr.budgetActionDate && lr.budgetActionDate.trim() !== '' && lr.budgetActionDate.trim() !== '-') ||
+        (lr.budgetStatus && lr.budgetStatus.trim() !== '' && lr.budgetStatus.trim() !== '-') ||
+        (lr.budgetReceiveDate && lr.budgetReceiveDate.trim() !== '' && lr.budgetReceiveDate.trim() !== '-') ||
+        (lr.budgetFR && lr.budgetFR.trim() !== '' && lr.budgetFR.trim() !== '-') ||
+        (lr.budgetFC && lr.budgetFC.trim() !== '' && lr.budgetFC.trim() !== '-') ||
+        (lr.budgetPR && lr.budgetPR.trim() !== '' && lr.budgetPR.trim() !== '-')
+      );
+
+      if (!isCompleted) return;
+
+      allList.push(doc);
+
+      // Check date from budgetActionDate, budgetReceiveDate, or actionDate
+      const dateStr = lr.budgetActionDate?.trim() || lr.budgetReceiveDate?.trim() || lr.actionDate?.trim() || lr.dateReceive?.trim();
+      const parsed = parseThaiDate(dateStr);
+
+      if (parsed) {
+        const y = parsed.getFullYear();
+        const m = parsed.getMonth();
+        const d = parsed.getDate();
+
+        if (y === currentYear && m === currentMonth) {
+          monthList.push(doc);
+          if (d === currentDate) {
+            todayList.push(doc);
+          }
+        }
+      } else {
+        // If cannot parse date, keep in monthList and todayList
+        todayList.push(doc);
+        monthList.push(doc);
+      }
+    });
+
+    return {
+      budgetTodayDocs: todayList,
+      budgetThisMonthDocs: monthList,
+      budgetAllDocs: allList,
+    };
+  }, [baseFilteredDocs]);
+
+  // Filtered documents list for current view
+  const filteredDocuments = useMemo(() => {
+    // สำหรับหน้างานงบประมาณ: แสดงเฉพาะเอกสารที่กดบันทึกข้อมูลแล้ว และแสดงตามกล่องสถิติที่เลือก (วันนี้, เดือนนี้, ทั้งหมด)
+    if (currentDept === 'งานงบประมาณ') {
+      if (budgetCompletedPeriod === 'today') return budgetTodayDocs;
+      if (budgetCompletedPeriod === 'this_month') return budgetThisMonthDocs;
+      return budgetAllDocs;
+    }
+
+    if (workStatusFilter === 'ALL') {
+      return baseFilteredDocs;
+    }
+
+    return baseFilteredDocs.filter((doc) => {
+      // Work status filter:
+      if (currentDept === 'งานสอบทาน') {
+        const isReviewDone = Boolean(doc.latestRound.reviewStatus && doc.latestRound.reviewStatus.trim() !== '' && doc.latestRound.reviewStatus.trim() !== '-');
+        const isReviewReceived = Boolean(
+          (doc.latestRound.reviewReceiveDate && doc.latestRound.reviewReceiveDate.trim() !== '' && doc.latestRound.reviewReceiveDate.trim() !== '-') ||
+          (doc.latestRound.reviewProvider && doc.latestRound.reviewProvider.trim() !== '' && doc.latestRound.reviewProvider.trim() !== '-' && doc.latestRound.reviewProvider.trim() !== 'ไม่เลือก')
+        );
+
+        // 4. งานค้างในมือ (PENDING): ยังไม่ได้กดรับเอกสาร
+        if (workStatusFilter === 'PENDING') {
+          if (isReviewReceived || isReviewDone) return false;
+        }
+        // 3. ดำเนินการแล้ว (COMPLETED): บันทึกสถานะการตรวจแล้ว
+        else if (workStatusFilter === 'COMPLETED') {
+          if (!isReviewDone) return false;
+        }
+        // 2. บันทึกรับแล้ว (RECEIVED): กดรับเอกสารแล้ว แต่ยังไม่ได้บันทึกสถานะดำเนินการ
+        else if (workStatusFilter === 'RECEIVED') {
+          if (!isReviewReceived || isReviewDone) return false;
+        }
+      } else if (currentDept === 'งานการเงิน') {
+        const isFinanceCompleted = Boolean(doc.latestRound.disbursementDate && doc.latestRound.disbursementDate.trim() !== '');
+        const isFinanceReceived = Boolean(
+          (doc.latestRound.financeReceiveDate && doc.latestRound.financeReceiveDate.trim() !== '') ||
+          (doc.latestRound.financePreparer && doc.latestRound.financePreparer.trim() !== '') ||
+          (doc.latestRound.financePaymentType && doc.latestRound.financePaymentType.trim() !== '')
+        );
+        if (workStatusFilter === 'PENDING' && (isFinanceReceived || isFinanceCompleted)) return false;
+        if (workStatusFilter === 'COMPLETED' && !isFinanceCompleted) return false;
+        if (workStatusFilter === 'RECEIVED' && (!isFinanceReceived || isFinanceCompleted)) return false;
+      } else {
+        const hasRX = Boolean(
+          (doc.latestRound.subType && doc.latestRound.subType.trim() !== '') ||
+          (doc.latestRound.qa && doc.latestRound.qa.trim() !== '') ||
+          (doc.latestRound.actionDate && doc.latestRound.actionDate.trim() !== '') ||
+          (doc.latestRound.action && doc.latestRound.action.trim() !== '') ||
+          (doc.latestRound.status && doc.latestRound.status.trim() !== '') ||
+          (doc.latestRound.editGroup && doc.latestRound.editGroup.trim() !== '') ||
+          (doc.latestRound.editDetail && doc.latestRound.editDetail.trim() !== '')
+        );
+        if (workStatusFilter === 'PENDING') {
+          if (hasRX) return false;
+        } else if (workStatusFilter === 'COMPLETED') {
+          if (!hasRX) return false;
+        }
+      }
+
+      return true;
+    });
+  }, [baseFilteredDocs, workStatusFilter, currentDept, budgetCompletedPeriod, budgetTodayDocs, budgetThisMonthDocs, budgetAllDocs]);
 
   // Stats for the active filter
   const activeStats = useMemo(() => {
@@ -339,11 +784,16 @@ export default function App() {
       totalRoundsSum += doc.totalRounds;
       if (doc.totalRounds > 1) multiRoundCount++;
 
-      const hasStatus = Boolean(
-        (doc.latestRound.returnStatus && doc.latestRound.returnStatus.trim() !== '') ||
-        (doc.latestRound.status && doc.latestRound.status.trim() !== '')
+      const hasRX = Boolean(
+        (doc.latestRound.subType && doc.latestRound.subType.trim() !== '') ||
+        (doc.latestRound.qa && doc.latestRound.qa.trim() !== '') ||
+        (doc.latestRound.actionDate && doc.latestRound.actionDate.trim() !== '') ||
+        (doc.latestRound.action && doc.latestRound.action.trim() !== '') ||
+        (doc.latestRound.status && doc.latestRound.status.trim() !== '') ||
+        (doc.latestRound.editGroup && doc.latestRound.editGroup.trim() !== '') ||
+        (doc.latestRound.editDetail && doc.latestRound.editDetail.trim() !== '')
       );
-      if (hasStatus) {
+      if (hasRX) {
         returned++;
       } else {
         pending++;
@@ -365,8 +815,7 @@ export default function App() {
       const next = prev.map((item) => {
         if (
           item.id === updatedItem.id ||
-          String(item.rowId) === String(updatedItem.rowId) ||
-          (item.docNo && item.docNo === updatedItem.docNo && item.round === updatedItem.round)
+          (item.rowId && updatedItem.rowId && String(item.rowId) === String(updatedItem.rowId))
         ) {
           return { ...item, ...updatedItem };
         }
@@ -381,12 +830,139 @@ export default function App() {
     syncToGas('updateDocument', updatedItem).then((success) => {
       if (success) {
         showToast(`✅ บันทึกข้อมูลเอกสาร ${docIdentifier} ลง Google Sheet สำเร็จ`);
+        setTimeout(() => loadData(), 1200);
       } else {
-        showToast(`✅ บันทึกข้อมูลเอกสาร ${docIdentifier} ในระบบเรียบร้อยแล้ว`);
+        showToast(`⚠️ บันทึกลง Google Sheet ไม่สำเร็จ (บันทึกข้อมูลในระบบชั่วคราวแล้ว)`);
       }
-      loadData();
-      setTimeout(() => loadData(), 800);
     });
+  };
+
+  // Handle Save Review (บันทึกข้อมูลของงานสอบทาน บันทึกลง Google Sheet หน้า "DATA" ช่อง Y:AD)
+  const handleSaveReview = (updatedItem: DocumentItem) => {
+    setDocuments((prev) => {
+      const next = prev.map((item) => {
+        if (
+          item.id === updatedItem.id ||
+          (item.rowId && updatedItem.rowId && Number(item.rowId) === Number(updatedItem.rowId))
+        ) {
+          return { ...item, ...updatedItem };
+        }
+        return item;
+      });
+      saveLocalDocuments(next);
+      return next;
+    });
+
+    const docIdentifier = updatedItem.docNo || updatedItem.receiveNo || updatedItem.docRef || `แถว ${updatedItem.rowId}`;
+    showToast(`⏳ กำลังบันทึกข้อมูลงานสอบทาน ${docIdentifier} ลง Google Sheet (DATA ช่อง Y:AD)...`);
+    syncToGas('updateReview', updatedItem).then((success) => {
+      if (success) {
+        showToast(`✅ บันทึกข้อมูลงานสอบทาน ${docIdentifier} ลง Google Sheet (ช่อง Y:AD) สำเร็จ`);
+        setTimeout(() => loadData(), 1200);
+      } else {
+        showToast(`⚠️ บันทึกลง Google Sheet ไม่สำเร็จ (บันทึกข้อมูลในระบบชั่วคราวแล้ว)`);
+      }
+    });
+  };
+
+  // Handle Save Finance (บันทึกข้อมูลของงานการเงิน บันทึกลง Google Sheet หน้า "DATA" ช่อง AE:AQ)
+  const handleSaveFinance = async (updatedItem: DocumentItem) => {
+    setDocuments((prev) => {
+      const next = prev.map((item) => {
+        if (
+          item.id === updatedItem.id ||
+          (item.rowId && updatedItem.rowId && Number(item.rowId) === Number(updatedItem.rowId))
+        ) {
+          return { ...item, ...updatedItem };
+        }
+        return item;
+      });
+      saveLocalDocuments(next);
+      return next;
+    });
+
+    const docIdentifier = updatedItem.docNo || updatedItem.receiveNo || updatedItem.docRef || `แถว ${updatedItem.rowId}`;
+    showToast(`⏳ กำลังบันทึกข้อมูลงานการเงิน ${docIdentifier} ลง Google Sheet (DATA ช่อง AE:AQ)...`);
+    const success = await syncToGas('updateFinance', updatedItem);
+    if (success) {
+      showToast(`✅ บันทึกข้อมูลงานการเงิน ${docIdentifier} ลง Google Sheet (ช่อง AE:AQ) สำเร็จ`);
+      setTimeout(() => loadData(), 1200);
+      return true;
+    } else {
+      showToast(`⚠️ บันทึกลง Google Sheet ไม่สำเร็จ (บันทึกข้อมูลในระบบชั่วคราวแล้ว)`);
+      return false;
+    }
+  };
+
+  // Handle Save Budget (บันทึกข้อมูลของงานงบประมาณ บันทึกลง Google Sheet หน้า "DATA" ช่อง AR:AY)
+  const handleSaveBudget = async (updatedItem: DocumentItem) => {
+    setDocuments((prev) => {
+      const next = prev.map((item) => {
+        if (
+          item.id === updatedItem.id ||
+          (item.rowId && updatedItem.rowId && Number(item.rowId) === Number(updatedItem.rowId))
+        ) {
+          return { ...item, ...updatedItem };
+        }
+        return item;
+      });
+      saveLocalDocuments(next);
+      return next;
+    });
+
+    const docIdentifier = updatedItem.docNo || updatedItem.receiveNo || updatedItem.docRef || `แถว ${updatedItem.rowId}`;
+    showToast(`⏳ กำลังบันทึกข้อมูลงานงบประมาณ ${docIdentifier} ลง Google Sheet (DATA ช่อง AR:AY)...`);
+    const success = await syncToGas('updateBudget', updatedItem);
+    if (success) {
+      showToast(`✅ บันทึกข้อมูลงานงบประมาณ ${docIdentifier} ลง Google Sheet (ช่อง AR:AY) สำเร็จ`);
+      setTimeout(() => loadData(), 1200);
+      return true;
+    } else {
+      showToast(`⚠️ บันทึกลง Google Sheet ไม่สำเร็จ (บันทึกข้อมูลในระบบชั่วคราวแล้ว)`);
+      return false;
+    }
+  };
+
+  // Handle Batch Receive Save (บันทึกรับเอกสารหลายชุดพร้อมกัน งานสอบทาน)
+  const handleSaveBatchReceive = async (
+    selectedIds: string[],
+    batchReceiveDate: string,
+    batchProvider: string
+  ) => {
+    const targetItems: DocumentItem[] = [];
+    setDocuments((prev) => {
+      const next = prev.map((item) => {
+        if (selectedIds.includes(item.id)) {
+          const updated: DocumentItem = {
+            ...item,
+            reviewReceiveDate: batchReceiveDate.trim(),
+            reviewProvider: batchProvider.trim(),
+          };
+          targetItems.push(updated);
+          return updated;
+        }
+        return item;
+      });
+      saveLocalDocuments(next);
+      return next;
+    });
+
+    if (targetItems.length === 0) return;
+
+    showToast(`⏳ กำลังบันทึกรับเอกสาร ${targetItems.length} ชุดลง Google Sheet...`);
+    try {
+      const res = await batchSaveToGoogleSheet(targetItems);
+      if (res.success) {
+        showToast(`✅ บันทึกรับเอกสาร ${targetItems.length} ชุดลง Google Sheet เรียบร้อยแล้ว`);
+      } else {
+        showToast(`⚠️ บันทึกลง Google Sheet บางส่วนสำเร็จ (บันทึกข้อมูลในระบบเรียบร้อยแล้ว)`);
+      }
+    } catch (err) {
+      console.error('Batch save error:', err);
+      showToast(`✅ บันทึกรับเอกสาร ${targetItems.length} ชุดในระบบเรียบร้อยแล้ว`);
+    } finally {
+      setTimeout(() => loadData(), 1200);
+    }
   };
 
   // Handle Add New Document or Add New Round
@@ -424,8 +1000,10 @@ export default function App() {
     showToast('บันทึกการตั้งค่า Google Apps Script Web App URL เรียบร้อย');
   };
 
+  const isDark = theme === 'dark';
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-100/90 font-['Sarabun',sans-serif]">
+    <div className={`min-h-screen flex flex-col font-['Sarabun',sans-serif] transition-colors duration-200 ${isDark ? 'bg-[#0a1128] text-slate-100' : 'bg-[#f0f7ff] text-slate-900'}`}>
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 bg-slate-950 text-white px-4 py-3 rounded-xl shadow-xl text-xs font-bold border border-slate-800 animate-in fade-in slide-in-from-bottom-3 duration-200">
@@ -448,84 +1026,217 @@ export default function App() {
         userName={userName}
         userAvatar={userAvatar}
         onLogout={handleLogout}
+        onOpenReport={() => setCurrentView(currentView === 'REPORT' ? 'CARDS' : 'REPORT')}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Department Navigation Tabs (4 ฝ่าย) & Search/Filter */}
-        <DepartmentTabs
+      {/* View Router: Executive Report Dashboard vs Document Cards */}
+      {currentView === 'REPORT' ? (
+        <ReportDashboard
+          documents={documents}
+          groupedDocuments={groupedDocuments}
           currentDept={currentDept}
           onSelectDept={(dept) => setCurrentDept(dept)}
-          counts={counts}
-          searchQuery={searchQuery}
-          onSearchChange={(q) => setSearchQuery(q)}
-          returnStatusFilter={returnStatusFilter}
-          onReturnStatusChange={(st) => setReturnStatusFilter(st)}
-          multiRoundOnly={multiRoundOnly}
-          onMultiRoundToggle={(val) => setMultiRoundOnly(val)}
-          selectedProvider={selectedProvider}
-          onProviderChange={(p) => setSelectedProvider(p)}
-          availableProviders={availableProviders}
-          workStatusFilter={workStatusFilter}
-          onWorkStatusChange={(st) => setWorkStatusFilter(st)}
-          workStatusCounts={workStatusCounts}
+          onBackToCards={() => setCurrentView('CARDS')}
+          onRefresh={() => loadData(true)}
+          isLoading={isLoading}
+          theme={theme}
+          onToggleTheme={handleToggleTheme}
         />
+      ) : (
+        /* Main Content Area */
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          {/* Department Navigation Tabs (4 ฝ่าย) & Search/Filter */}
+          <DepartmentTabs
+            currentDept={currentDept}
+            onSelectDept={(dept) => setCurrentDept(dept)}
+            counts={counts}
+            searchQuery={searchQuery}
+            onSearchChange={(q) => setSearchQuery(q)}
+            returnStatusFilter={returnStatusFilter}
+            onReturnStatusChange={(st) => setReturnStatusFilter(st)}
+            multiRoundOnly={multiRoundOnly}
+            onMultiRoundToggle={(val) => setMultiRoundOnly(val)}
+            selectedProvider={selectedProvider}
+            onProviderChange={(p) => setSelectedProvider(p)}
+            availableProviders={availableProviders}
+            workStatusFilter={workStatusFilter}
+            onWorkStatusChange={(st) => setWorkStatusFilter(st)}
+            workStatusCounts={workStatusCounts}
+            onOpenReport={() => setCurrentView('REPORT')}
+            timeFilter={timeFilter}
+            onTimeFilterChange={(tf) => setTimeFilter(tf)}
+            customDate={customDate}
+            onCustomDateChange={(cd) => setCustomDate(cd)}
+            selectedDocTypes={selectedDocTypes}
+            onSelectedDocTypesChange={(types) => setSelectedDocTypes(types)}
+            availableDocTypes={availableDocTypes}
+            theme={theme}
+          />
 
-        {/* Executive Stats Summary */}
-        <StatsBar
-          currentDept={currentDept}
-          totalDocs={activeStats.totalDocs}
-          totalRounds={activeStats.totalRounds}
-          multiRoundDocs={activeStats.multiRoundDocs}
-          returnedDocs={activeStats.returnedDocs}
-          pendingDocs={activeStats.pendingDocs}
-        />
+          {/* Executive Stats Summary */}
+          <StatsBar
+            currentDept={currentDept}
+            totalDocs={workStatusCounts.all}
+            totalRounds={workStatusCounts.all}
+            returnedDocs={workStatusCounts.completed}
+            pendingDocs={workStatusCounts.pending}
+            receivedDocs={workStatusCounts.received}
+            workStatusFilter={workStatusFilter}
+            onWorkStatusChange={(st) => setWorkStatusFilter(st)}
+            budgetCompletedToday={budgetTodayDocs.length}
+            budgetCompletedThisMonth={budgetThisMonthDocs.length}
+            budgetCompletedAll={budgetAllDocs.length}
+            budgetCompletedPeriod={budgetCompletedPeriod}
+            onBudgetStatClick={(period) => {
+              setBudgetCompletedPeriod(period);
+            }}
+          />
 
-        {/* Document Cards Grid */}
-        {filteredDocuments.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredDocuments.map((doc, idx) => (
-              <DocumentCard
-                key={doc.latestRound?.id ? `${doc.docNo || 'doc'}-${doc.latestRound.id}` : `doc-card-${idx}-${doc.docNo}`}
-                document={doc}
-                onEdit={(item) => setEditItem(item)}
-                onInspect={(item) => {
-                  setInspectItem(item);
-                  setIsInspectModalOpen(true);
-                }}
-                onViewHistory={(d) => setHistoryDoc(d)}
-                onAddRound={(d) => {
-                  setNewDocTarget(d);
-                  setIsNewDocOpen(true);
-                }}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center my-6 shadow-2xs">
-            <div className="w-14 h-14 rounded-2xl bg-slate-50 text-slate-400 flex items-center justify-center mx-auto mb-3 border border-slate-200">
-              <FolderX className="w-7 h-7 text-slate-400" />
-            </div>
-            <h3 className="text-base font-bold text-slate-800 mb-1 font-['Prompt','Sarabun',sans-serif]">
-              ไม่พบข้อมูลเอกสารที่ตรงกับเงื่อนไข
-            </h3>
-            <p className="text-xs text-slate-500 font-normal max-w-sm mx-auto mb-4">
-              {searchQuery
-                ? `ไม่พบเอกสารที่มีคำว่า "${searchQuery}" ในฝ่าย${currentDept !== 'ALL' ? currentDept : 'ทั้งหมด'}`
-                : `ยังไม่มีเอกสารใน${currentDept !== 'ALL' ? currentDept : 'ระบบ'}`}
-            </p>
-            {searchQuery && (
+          {/* Action bar for งานสอบทาน: บันทึกรับเอกสารหลายชุดพร้อมกัน */}
+          {currentDept === 'งานสอบทาน' && (
+            <div className="mb-4 bg-gradient-to-r from-pink-50 via-rose-50 to-pink-50 border border-pink-200/90 rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-pink-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                  <Inbox className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-pink-950 font-['Prompt','Sarabun',sans-serif]">
+                    งานสอบทาน: บันทึกรับเอกสารหลายชุดพร้อมกัน
+                  </h4>
+                  <p className="text-xs text-pink-700">
+                    กรองประเภท ติ๊กเลือกชุดที่ได้รับ กรอกผู้ให้บริการช่องเดียว แล้วบันทึกลง Google Sheet พร้อมกันทันที
+                  </p>
+                </div>
+              </div>
               <button
-                onClick={() => setSearchQuery('')}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition-colors cursor-pointer shadow-2xs"
+                onClick={() => setIsBatchReceiveOpen(true)}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-pink-600 hover:bg-pink-700 active:bg-pink-800 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] shrink-0"
               >
-                <FileSearch className="w-3.5 h-3.5" />
-                <span>ล้างคำค้นหา</span>
+                <Inbox className="w-4 h-4" />
+                <span>บันทึกรับเอกสารหลายชุดพร้อมกัน</span>
               </button>
-            )}
-          </div>
-        )}
-      </main>
+            </div>
+          )}
+
+          {/* Action bar for งานการเงิน: จัดทำเช็ค/โอนเงิน และการจ่ายเงิน */}
+          {currentDept === 'งานการเงิน' && (
+            <div className="mb-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200/90 rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                  <ClipboardCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-emerald-950 font-['Prompt','Sarabun',sans-serif]">
+                    งานการเงิน: จัดทำเช็ค/โอนเงิน และบันทึกการจ่ายเงิน
+                  </h4>
+                  <p className="text-xs text-emerald-700">
+                    เลือกเอกสารเพื่อบันทึกประเภทการจ่าย, ผู้จัดทำ, เช็คด่วน, ผู้จ่ายเงิน และหมายเหตุปัญหา (คอลัมน์ AE:AQ)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setFinanceItem(filteredDocuments[0]?.latestRound || null);
+                  setIsFinanceModalOpen(true);
+                }}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] shrink-0"
+              >
+                <ClipboardCheck className="w-4 h-4" />
+                <span>บันทึกข้อมูลงานการเงิน</span>
+              </button>
+            </div>
+          )}
+
+          {/* Action bar for งานงบประมาณ: FR, FC, PR, สถานะ และวันที่ดำเนินการ */}
+          {currentDept === 'งานงบประมาณ' && (
+            <div className="mb-4 bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border border-amber-200/90 rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                  <ClipboardCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-amber-950 font-['Prompt','Sarabun',sans-serif]">
+                    งานงบประมาณ: จัดการงบประมาณ (FR, FC, PR, สถานะ)
+                  </h4>
+                  <p className="text-xs text-amber-700">
+                    เลือกเอกสารเพื่อบันทึก FR/FC/PR 10 หลัก, สถานะงบประมาณ, วันที่รับ/ดำเนินการ (คอลัมน์ AR:AY)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setBudgetItem(filteredDocuments[0]?.latestRound || null);
+                  setIsBudgetModalOpen(true);
+                }}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] shrink-0"
+              >
+                <ClipboardCheck className="w-4 h-4" />
+                <span>บันทึกข้อมูลงานงบประมาณ</span>
+              </button>
+            </div>
+          )}
+
+          {/* Document Cards Grid (3 คอลัมน์) */}
+          {filteredDocuments.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredDocuments.map((doc, idx) => (
+                <DocumentCard
+                  key={doc.latestRound?.id ? `${doc.docNo || 'doc'}-${doc.latestRound.id}` : `doc-card-${idx}-${doc.docNo}`}
+                  document={doc}
+                  currentDept={currentDept}
+                  onEdit={(item) => setEditItem(item)}
+                  onInspect={(item) => {
+                    setInspectItem(item);
+                    setIsInspectModalOpen(true);
+                  }}
+                  onReview={(item) => {
+                    setReviewItem(item);
+                    setIsReviewModalOpen(true);
+                  }}
+                  onFinance={(item) => {
+                    setFinanceItem(item);
+                    setIsFinanceModalOpen(true);
+                  }}
+                  onBudget={(item) => {
+                    setBudgetItem(item);
+                    setIsBudgetModalOpen(true);
+                  }}
+                  onViewHistory={(d) => setHistoryDoc(d)}
+                  onAddRound={(d) => {
+                    setNewDocTarget(d);
+                    setIsNewDocOpen(true);
+                  }}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className={`rounded-2xl border p-12 text-center my-6 shadow-2xs ${isDark ? 'bg-[#111e42] border-sky-900/60' : 'bg-white border-slate-200'}`}>
+              <div className="w-14 h-14 rounded-2xl bg-slate-50 text-slate-400 flex items-center justify-center mx-auto mb-3 border border-slate-200">
+                <FolderX className="w-7 h-7 text-slate-400" />
+              </div>
+              <h3 className={`text-base font-bold mb-1 font-['Prompt','Sarabun',sans-serif] ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                ไม่พบข้อมูลเอกสารที่ตรงกับเงื่อนไข
+              </h3>
+              <p className="text-xs text-slate-500 font-normal max-w-sm mx-auto mb-4">
+                {searchQuery
+                  ? `ไม่พบเอกสารที่มีคำว่า "${searchQuery}" ในฝ่าย${currentDept !== 'ALL' ? currentDept : 'ทั้งหมด'}`
+                  : `ยังไม่มีเอกสารใน${currentDept !== 'ALL' ? currentDept : 'ระบบ'}`}
+              </p>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition-colors cursor-pointer shadow-2xs"
+                >
+                  <FileSearch className="w-3.5 h-3.5" />
+                  <span>ล้างคำค้นหา</span>
+                </button>
+              )}
+            </div>
+          )}
+        </main>
+      )}
 
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
@@ -571,6 +1282,82 @@ export default function App() {
           setIsInspectModalOpen(false);
           setInspectItem(null);
         }}
+      />
+
+      <ReviewRecordModal
+        isOpen={isReviewModalOpen}
+        item={reviewItem}
+        documents={filteredDocuments.map((d) => d.latestRound)}
+        availableProviders={availableProviders}
+        onOpenBatchReceive={() => setIsBatchReceiveOpen(true)}
+        onClose={() => {
+          setIsReviewModalOpen(false);
+          setReviewItem(null);
+        }}
+        onSave={(updated, part) => {
+          handleSaveReview(updated);
+          if (part === 'receive') {
+            showToast('✅ บันทึกการรับเอกสาร (พาร์ท 1) เรียบร้อยแล้ว');
+          } else if (part === 'status') {
+            showToast('✅ บันทึกสถานะการตรวจ (พาร์ท 2) เรียบร้อยแล้ว');
+          } else {
+            showToast('✅ บันทึกข้อมูลงานสอบทานเรียบร้อยแล้ว');
+            setIsReviewModalOpen(false);
+            setReviewItem(null);
+          }
+        }}
+      />
+
+      <FinanceRecordModal
+        isOpen={isFinanceModalOpen}
+        item={financeItem}
+        documents={filteredDocuments.map((d) => d.latestRound)}
+        onClose={() => {
+          setIsFinanceModalOpen(false);
+          setFinanceItem(null);
+        }}
+        onSave={async (updated) => {
+          const ok = await handleSaveFinance(updated);
+          if (ok) {
+            setIsFinanceModalOpen(false);
+            setFinanceItem(null);
+          }
+        }}
+      />
+
+      <BudgetRecordModal
+        isOpen={isBudgetModalOpen}
+        item={budgetItem}
+        documents={documents}
+        onClose={() => {
+          setIsBudgetModalOpen(false);
+          setBudgetItem(null);
+        }}
+        onSave={async (updated) => {
+          await handleSaveBudget(updated);
+        }}
+      />
+
+      <BudgetCompletedModal
+        isOpen={isBudgetCompletedModalOpen}
+        onClose={() => setIsBudgetCompletedModalOpen(false)}
+        period={budgetCompletedPeriod}
+        onSelectPeriod={(p) => setBudgetCompletedPeriod(p)}
+        todayDocs={budgetTodayDocs}
+        thisMonthDocs={budgetThisMonthDocs}
+        allDocs={budgetAllDocs}
+        onOpenBudgetRecord={(item) => {
+          setBudgetItem(item);
+          setIsBudgetModalOpen(true);
+        }}
+      />
+
+      <BatchReceiveModal
+        isOpen={isBatchReceiveOpen}
+        documents={documents}
+        availableProviders={availableProviders}
+        onClose={() => setIsBatchReceiveOpen(false)}
+        onBatchSave={handleSaveBatchReceive}
       />
 
       <NewDocModal

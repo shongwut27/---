@@ -78,9 +78,13 @@ function doPost(e) {
       } catch (parseErr) {}
     }
 
-    if (action === 'updateDocument') {
+    if (action === 'updateDocument' || action === 'updateReview') {
       const result = updateDocumentRecord(data);
       return jsonResponse({ status: 'success', message: 'อัปเดตเอกสารสำเร็จ', result: result });
+    }
+    if (action === 'updateFinance') {
+      const result = updateFinanceRecord(data);
+      return jsonResponse({ status: 'success', message: 'บันทึกข้อมูลงานการเงินสำเร็จ', result: result });
     }
     if (action === 'addRound') {
       const result = addNewRound(data);
@@ -119,9 +123,12 @@ function getAllDocuments() {
 
   // ข้อมูลจริงเริ่มที่แถว 3 (index 2) ข้ามแถวที่ 1 (กลุ่มงาน) และแถวที่ 2 (ชื่อคอลัมน์)
   const rows = [];
+  const hasEmail = data[1] && (String(data[1][5] || '').indexOf('เมล') !== -1 || data[1].length >= 52);
+  const off = hasEmail ? 1 : 0;
+
   for (let i = 2; i < data.length; i++) {
     const row = data[i];
-    const docNo = String(row[7] || '').trim();
+    const docNo = String(row[7 + off] || row[7] || '').trim();
     if (!docNo && !row[2]) continue;
 
     rows.push({
@@ -131,26 +138,48 @@ function getAllDocuments() {
       receiveNo: String(row[2] || '').trim(),
       sender: String(row[3] || '').trim(),
       phone: String(row[4] || '').trim(),
-      docRef: String(row[5] || '').trim(),
-      agency: String(row[6] || '').trim(),
+      email: off ? String(row[5] || '').trim() : '',
+      docRef: String(row[5 + off] || '').trim(),
+      agency: String(row[6 + off] || '').trim(),
       docNo: docNo,
-      docType: String(row[8] || '').trim(),
-      dateReceive: formatValue(row[9]),
-      dateDesk: formatValue(row[10]),
-      dateReturn: formatValue(row[11]),
-      returnStatus: String(row[12] || '').trim(),
-      providerAuto: String(row[13] || '').trim(),
-      providerChange: String(row[14] || '').trim(),
-      providerFinal: String(row[15] || '').trim(),
-      note: String(row[16] || '').trim(),
-      // งานตรวจจ่าย (คอลัมน์ R ถึง X: คอลัมน์ที่ 18 ถึง 24 ตามภาพในชีท DATA)
-      subType: String(row[17] || '').trim(),      // R: ประเภทเอกสารย่อย
-      qa: String(row[18] || '').trim(),           // S: QA.
-      actionDate: formatValue(row[19]),          // T: วันที่ดำเนินการ
-      action: String(row[20] || '').trim(),       // U: การดำเนินการ
-      status: String(row[21] || '').trim(),       // V: สถานะ
-      editGroup: String(row[22] || '').trim(),    // W: Group-กรณีแก้ไข
-      editDetail: String(row[23] || '').trim()    // X: รายละเอียดกรณีแก้ไข
+      docType: String(row[8 + off] || '').trim(),
+      dateReceive: formatValue(row[9 + off]),
+      dateDesk: formatValue(row[10 + off]),
+      dateReturn: formatValue(row[11 + off]),
+      returnStatus: String(row[12 + off] || '').trim(),
+      providerAuto: String(row[13 + off] || '').trim(),
+      providerChange: String(row[14 + off] || '').trim(),
+      providerFinal: String(row[15 + off] || '').trim(),
+      note: String(row[16 + off] || '').trim(),
+      // งานตรวจจ่าย (คอลัมน์ S ถึง Y ในชีท 52 คอลัมน์: คอลัมน์ที่ 19 ถึง 25)
+      subType: String(row[17 + off] || '').trim(),      // S: ประเภทเอกสารย่อย
+      qa: String(row[18 + off] || '').trim(),           // T: QA.
+      actionDate: formatValue(row[19 + off]),          // U: วันที่ดำเนินการ
+      action: String(row[20 + off] || '').trim(),       // V: การดำเนินการ
+      status: String(row[21 + off] || '').trim(),       // W: สถานะ
+      editGroup: String(row[22 + off] || '').trim(),    // X: Group-กรณีแก้ไข
+      editDetail: String(row[23 + off] || '').trim(),   // Y: รายละเอียดกรณีแก้ไข
+      // งานสอบทาน (คอลัมน์ Z ถึง AE ในชีท 52 คอลัมน์: คอลัมน์ที่ 26 ถึง 31)
+      reviewReceiveDate: formatValue(row[24 + off]),    // Z: วันที่รับเอกสาร (งานสอบทาน)
+      reviewProvider: String(row[25 + off] || '').trim(), // AA: ผู้ให้บริการ (งานสอบทาน)
+      reviewActionDate: formatValue(row[26 + off]),     // AB: วันที่ดำเนินการ (งานสอบทาน)
+      reviewStatus: String(row[27 + off] || '').trim(), // AC: สถานะ (งานสอบทาน)
+      reviewEditType: String(row[28 + off] || '').trim(), // AD: ประเภทแก้ไข (งานสอบทาน)
+      reviewEditDetail: String(row[29 + off] || '').trim(), // AE: รายละเอียดกรณีแก้ไข / หมายเหตุ (งานสอบทาน)
+      // งานการเงิน (คอลัมน์ AF ถึง AR ในชีท 52 คอลัมน์)
+      financeReceiveDate: formatValue(row[30 + off]),
+      financePaymentType: String(row[31 + off] || '').trim(),
+      financePreparer: String(row[32 + off] || '').trim(),
+      financeUrgentCheck: String(row[33 + off] || '').trim(),
+      financeActionDate: formatValue(row[34 + off]),
+      financeReviewDate: formatValue(row[35 + off]),
+      disbursementDate: formatValue(row[36 + off]),
+      disbursementPayer: String(row[37 + off] || '').trim(),
+      disbursementNotifyDate: formatValue(row[38 + off]),
+      disbursementActivityStartDate: formatValue(row[39 + off]),
+      disbursementActivityEndDate: formatValue(row[40 + off]),
+      financeIssueDate: formatValue(row[41 + off]),
+      financeIssueDetail: String(row[42 + off] || '').trim()
     });
   }
   return rows;
@@ -165,7 +194,7 @@ function updateDocumentRecord(item) {
   let targetRow = 0;
   if (rowId && rowId >= 3 && rowId <= data.length) {
     const r = data[rowId - 1];
-    const matchDocNo = item.docNo && String(r[7]).trim() === String(item.docNo).trim();
+    const matchDocNo = item.docNo && (String(r[7]).trim() === String(item.docNo).trim() || String(r[8]).trim() === String(item.docNo).trim());
     const matchRecvNo = item.receiveNo && String(r[2]).trim() === String(item.receiveNo).trim();
     if (matchDocNo || matchRecvNo) {
       targetRow = rowId;
@@ -176,7 +205,7 @@ function updateDocumentRecord(item) {
   if (!targetRow) {
     for (let i = 2; i < data.length; i++) {
       const r = data[i];
-      if (item.docNo && String(r[7]).trim() === String(item.docNo).trim()) {
+      if (item.docNo && (String(r[7]).trim() === String(item.docNo).trim() || String(r[8]).trim() === String(item.docNo).trim())) {
         targetRow = i + 1;
         break;
       } else if (item.receiveNo && String(r[2]).trim() === String(item.receiveNo).trim()) {
@@ -196,35 +225,117 @@ function updateDocumentRecord(item) {
   }
   rowId = targetRow;
 
-  // ข้อมูลทั่วไป (คอลัมน์ A ถึง Q: คอลัมน์ที่ 1 ถึง 17)
+  const hasEmail = data[1] && (String(data[1][5] || '').indexOf('เมล') !== -1 || data[1].length >= 52);
+  const off = hasEmail ? 1 : 0;
+
+  // ข้อมูลทั่วไป (คอลัมน์ A ถึง R: คอลัมน์ที่ 1 ถึง 18)
   if (item.ep !== undefined) sheet.getRange(rowId, 1).setValue(item.ep);
   if (item.no !== undefined) sheet.getRange(rowId, 2).setValue(item.no);
   if (item.receiveNo !== undefined) sheet.getRange(rowId, 3).setValue(item.receiveNo);
   if (item.sender !== undefined) sheet.getRange(rowId, 4).setValue(item.sender);
   if (item.phone !== undefined) sheet.getRange(rowId, 5).setValue(item.phone);
-  if (item.docRef !== undefined) sheet.getRange(rowId, 6).setValue(item.docRef);
-  if (item.agency !== undefined) sheet.getRange(rowId, 7).setValue(item.agency);
-  if (item.docNo !== undefined) sheet.getRange(rowId, 8).setValue(item.docNo);
-  if (item.docType !== undefined) sheet.getRange(rowId, 9).setValue(item.docType);
-  if (item.dateReceive !== undefined) sheet.getRange(rowId, 10).setValue(item.dateReceive);
-  if (item.dateDesk !== undefined) sheet.getRange(rowId, 11).setValue(item.dateDesk);
-  if (item.dateReturn !== undefined) sheet.getRange(rowId, 12).setValue(item.dateReturn);
-  if (item.returnStatus !== undefined) sheet.getRange(rowId, 13).setValue(item.returnStatus);
-  if (item.providerAuto !== undefined) sheet.getRange(rowId, 14).setValue(item.providerAuto);
-  if (item.providerChange !== undefined) sheet.getRange(rowId, 15).setValue(item.providerChange);
-  if (item.providerFinal !== undefined) sheet.getRange(rowId, 16).setValue(item.providerFinal);
-  if (item.note !== undefined) sheet.getRange(rowId, 17).setValue(item.note);
+  if (off && item.email !== undefined) sheet.getRange(rowId, 6).setValue(item.email);
+  if (item.docRef !== undefined) sheet.getRange(rowId, 6 + off).setValue(item.docRef);
+  if (item.agency !== undefined) sheet.getRange(rowId, 7 + off).setValue(item.agency);
+  if (item.docNo !== undefined) sheet.getRange(rowId, 8 + off).setValue(item.docNo);
+  if (item.docType !== undefined) sheet.getRange(rowId, 9 + off).setValue(item.docType);
+  if (item.dateReceive !== undefined) sheet.getRange(rowId, 10 + off).setValue(item.dateReceive);
+  if (item.dateDesk !== undefined) sheet.getRange(rowId, 11 + off).setValue(item.dateDesk);
+  if (item.dateReturn !== undefined) sheet.getRange(rowId, 12 + off).setValue(item.dateReturn);
+  if (item.returnStatus !== undefined) sheet.getRange(rowId, 13 + off).setValue(item.returnStatus);
+  if (item.providerAuto !== undefined) sheet.getRange(rowId, 14 + off).setValue(item.providerAuto);
+  if (item.providerChange !== undefined) sheet.getRange(rowId, 15 + off).setValue(item.providerChange);
+  if (item.providerFinal !== undefined) sheet.getRange(rowId, 16 + off).setValue(item.providerFinal);
+  if (item.note !== undefined) sheet.getRange(rowId, 17 + off).setValue(item.note);
 
-  // งานตรวจจ่าย (คอลัมน์ R ถึง X: คอลัมน์ที่ 18 ถึง 24 ตามภาพในชีท DATA)
-  if (item.subType !== undefined) sheet.getRange(rowId, 18).setValue(item.subType);       // R: ประเภทเอกสารย่อย
-  if (item.qa !== undefined) sheet.getRange(rowId, 19).setValue(item.qa);                 // S: QA.
-  if (item.actionDate !== undefined) sheet.getRange(rowId, 20).setValue(item.actionDate); // T: วันที่ดำเนินการ
-  if (item.action !== undefined) sheet.getRange(rowId, 21).setValue(item.action);         // U: การดำเนินการ
-  if (item.status !== undefined) sheet.getRange(rowId, 22).setValue(item.status);         // V: สถานะ
-  if (item.editGroup !== undefined) sheet.getRange(rowId, 23).setValue(item.editGroup);   // W: Group-กรณีแก้ไข
-  if (item.editDetail !== undefined) sheet.getRange(rowId, 24).setValue(item.editDetail); // X: รายละเอียดกรณีแก้ไข
+  // งานตรวจจ่าย (คอลัมน์ S ถึง Y: คอลัมน์ที่ 19 ถึง 25 ตามภาพในชีท DATA 52 คอลัมน์)
+  if (item.subType !== undefined) sheet.getRange(rowId, 18 + off).setValue(item.subType);       // S: ประเภทเอกสารย่อย
+  if (item.qa !== undefined) sheet.getRange(rowId, 19 + off).setValue(item.qa);                 // T: QA.
+  if (item.actionDate !== undefined) sheet.getRange(rowId, 20 + off).setValue(item.actionDate); // U: วันที่ดำเนินการ
+  if (item.action !== undefined) sheet.getRange(rowId, 21 + off).setValue(item.action);         // V: การดำเนินการ
+  if (item.status !== undefined) sheet.getRange(rowId, 22 + off).setValue(item.status);         // W: สถานะ
+  if (item.editGroup !== undefined) sheet.getRange(rowId, 23 + off).setValue(item.editGroup);   // X: Group-กรณีแก้ไข
+  if (item.editDetail !== undefined) sheet.getRange(rowId, 24 + off).setValue(item.editDetail); // Y: รายละเอียดกรณีแก้ไข
+
+  // งานสอบทาน (คอลัมน์ Z ถึง AE: คอลัมน์ที่ 26 ถึง 31 ตามภาพในชีท DATA 52 คอลัมน์)
+  if (item.reviewReceiveDate !== undefined) sheet.getRange(rowId, 25 + off).setValue(item.reviewReceiveDate); // Z: วันที่รับเอกสาร
+  if (item.reviewProvider !== undefined) sheet.getRange(rowId, 26 + off).setValue(item.reviewProvider);       // AA: ผู้ให้บริการ
+  if (item.reviewActionDate !== undefined) sheet.getRange(rowId, 27 + off).setValue(item.reviewActionDate);   // AB: วันที่ดำเนินการ
+  if (item.reviewStatus !== undefined) sheet.getRange(rowId, 28 + off).setValue(item.reviewStatus);           // AC: สถานะ
+  if (item.reviewEditType !== undefined) sheet.getRange(rowId, 29 + off).setValue(item.reviewEditType);       // AD: ประเภทแก้ไข
+  if (item.reviewEditDetail !== undefined) sheet.getRange(rowId, 30 + off).setValue(item.reviewEditDetail);   // AE: รายละเอียดกรณีแก้ไข
+
+  // งานการเงิน (คอลัมน์ AF ถึง AR ในชีท 52 คอลัมน์)
+  if (item.financeReceiveDate !== undefined) sheet.getRange(rowId, 31 + off).setValue(item.financeReceiveDate);
+  if (item.financePaymentType !== undefined) sheet.getRange(rowId, 32 + off).setValue(item.financePaymentType);
+  if (item.financePreparer !== undefined) sheet.getRange(rowId, 33 + off).setValue(item.financePreparer);
+  if (item.financeUrgentCheck !== undefined) sheet.getRange(rowId, 34 + off).setValue(item.financeUrgentCheck);
+  if (item.financeActionDate !== undefined) sheet.getRange(rowId, 35 + off).setValue(item.financeActionDate);
+  if (item.financeReviewDate !== undefined) sheet.getRange(rowId, 36 + off).setValue(item.financeReviewDate);
+  if (item.disbursementDate !== undefined) sheet.getRange(rowId, 37 + off).setValue(item.disbursementDate);
+  if (item.disbursementPayer !== undefined) sheet.getRange(rowId, 38 + off).setValue(item.disbursementPayer);
+  if (item.disbursementNotifyDate !== undefined) sheet.getRange(rowId, 39 + off).setValue(item.disbursementNotifyDate);
+  if (item.disbursementActivityStartDate !== undefined) sheet.getRange(rowId, 40 + off).setValue(item.disbursementActivityStartDate);
+  if (item.disbursementActivityEndDate !== undefined) sheet.getRange(rowId, 41 + off).setValue(item.disbursementActivityEndDate);
+  if (item.financeIssueDate !== undefined) sheet.getRange(rowId, 42 + off).setValue(item.financeIssueDate);
+  if (item.financeIssueDetail !== undefined) sheet.getRange(rowId, 43 + off).setValue(item.financeIssueDetail);
 
   return { rowId: rowId, docNo: item.docNo };
+}
+
+function updateFinanceRecord(item) {
+  const sheet = getSheet();
+  let rowId = parseInt(item.rowId, 10);
+  const data = sheet.getDataRange().getValues();
+
+  let targetRow = 0;
+  if (rowId && rowId >= 3 && rowId <= data.length) {
+    const r = data[rowId - 1];
+    const matchDocNo = item.docNo && String(r[7]).trim() === String(item.docNo).trim();
+    const matchRecvNo = item.receiveNo && String(r[2]).trim() === String(item.receiveNo).trim();
+    if (matchDocNo || matchRecvNo) {
+      targetRow = rowId;
+    }
+  }
+
+  if (!targetRow) {
+    for (let i = 2; i < data.length; i++) {
+      const r = data[i];
+      if (item.docNo && String(r[7]).trim() === String(item.docNo).trim()) {
+        targetRow = i + 1;
+        break;
+      } else if (item.receiveNo && String(r[2]).trim() === String(item.receiveNo).trim()) {
+        targetRow = i + 1;
+        break;
+      }
+    }
+  }
+
+  if (!targetRow && rowId >= 3) {
+    targetRow = rowId;
+  }
+
+  if (!targetRow || targetRow < 3) {
+    throw new Error('ไม่พบแถวในชีท DATA สำหรับเอกสาร ' + (item.docNo || item.receiveNo || ''));
+  }
+  rowId = targetRow;
+
+  // คอลัมน์ AE ถึง AQ (31 ถึง 43)
+  if (item.financeReceiveDate !== undefined) sheet.getRange(rowId, 31).setValue(item.financeReceiveDate);
+  if (item.financePaymentType !== undefined) sheet.getRange(rowId, 32).setValue(item.financePaymentType);
+  if (item.financePreparer !== undefined) sheet.getRange(rowId, 33).setValue(item.financePreparer);
+  if (item.financeUrgentCheck !== undefined) sheet.getRange(rowId, 34).setValue(item.financeUrgentCheck);
+  if (item.financeActionDate !== undefined) sheet.getRange(rowId, 35).setValue(item.financeActionDate);
+  if (item.financeReviewDate !== undefined) sheet.getRange(rowId, 36).setValue(item.financeReviewDate);
+  if (item.disbursementDate !== undefined) sheet.getRange(rowId, 37).setValue(item.disbursementDate);
+  if (item.disbursementPayer !== undefined) sheet.getRange(rowId, 38).setValue(item.disbursementPayer);
+  if (item.disbursementNotifyDate !== undefined) sheet.getRange(rowId, 39).setValue(item.disbursementNotifyDate);
+  if (item.disbursementActivityStartDate !== undefined) sheet.getRange(rowId, 40).setValue(item.disbursementActivityStartDate);
+  if (item.disbursementActivityEndDate !== undefined) sheet.getRange(rowId, 41).setValue(item.disbursementActivityEndDate);
+  if (item.financeIssueDate !== undefined) sheet.getRange(rowId, 42).setValue(item.financeIssueDate);
+  if (item.financeIssueDetail !== undefined) sheet.getRange(rowId, 43).setValue(item.financeIssueDetail);
+
+  return { rowId: rowId, docNo: item.docNo, receiveNo: item.receiveNo };
 }
 
 function addNewRound(item) {
@@ -254,7 +365,14 @@ function addNewRound(item) {
     item.action || '',       // U: การดำเนินการ
     item.status || '',       // V: สถานะ
     item.editGroup || '',    // W: Group-กรณีแก้ไข
-    item.editDetail || ''    // X: รายละเอียดกรณีแก้ไข
+    item.editDetail || '',   // X: รายละเอียดกรณีแก้ไข
+    // งานสอบทาน (คอลัมน์ Y ถึง AD: คอลัมน์ที่ 25 ถึง 30)
+    item.reviewReceiveDate || '', // Y: วันที่รับเอกสาร
+    item.reviewProvider || '',    // Z: ผู้ให้บริการ
+    item.reviewActionDate || '',  // AA: วันที่ดำเนินการ
+    item.reviewStatus || '',      // AB: สถานะ
+    item.reviewEditType || '',    // AC: ประเภทแก้ไข
+    item.reviewEditDetail || ''   // AD: รายละเอียดกรณีแก้ไข
   ]);
   return { success: true };
 }

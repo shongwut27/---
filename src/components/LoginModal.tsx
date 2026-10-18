@@ -87,15 +87,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onLogin }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#f8fafc] flex flex-col justify-between overflow-y-auto">
-      {/* Top Header Bar matching Image 1 */}
+    <div className="fixed inset-0 z-50 bg-white flex flex-col justify-between overflow-y-auto">
+      {/* Top Header Bar */}
       <div className="w-full px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          {/* Google Sheets Icon */}
-          <div className="w-7 h-7 rounded-lg bg-[#00a651] flex items-center justify-center text-white shadow-2xs">
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z" />
-            </svg>
+          {/* MFU Logo */}
+          <div className="h-9 w-7 flex items-center justify-center shrink-0">
+            <img
+              src="/MFU_logo.png"
+              alt="มหาวิทยาลัยแม่ฟ้าหลวง"
+              className="h-9 w-auto object-contain"
+              referrerPolicy="no-referrer"
+            />
           </div>
           <span className="text-sm font-semibold text-slate-800 font-['Prompt','Sarabun',sans-serif]">
             มหาวิทยาลัยแม่ฟ้าหลวง • ส่วนการเงินและบัญชี
@@ -106,40 +109,84 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onLogin }) => {
         </div>
       </div>
 
-      {/* Center Card matching Image 1 */}
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 max-w-md w-full p-8 sm:p-10 text-center animate-in fade-in zoom-in-95 duration-200">
-          {/* Green Icon */}
-          <div className="w-16 h-16 rounded-2xl bg-[#00a651] flex items-center justify-center text-white mx-auto shadow-md shadow-emerald-100">
-            <svg className="w-9 h-9" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z" />
-            </svg>
+      {/* Center Card with split header layout matching reference image, in Blue-White theme (Enlarged 3x) */}
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-8 lg:p-12 my-auto">
+        <div className="bg-white rounded-[2.5rem] shadow-2xl border border-sky-100 max-w-3xl w-full overflow-hidden text-center animate-in fade-in zoom-in-95 duration-200">
+          {/* Top Blue Banner */}
+          <div className="bg-gradient-to-b from-blue-900 via-blue-800 to-sky-900 px-8 py-10 sm:px-14 sm:py-14 text-center">
+            {/* MFU Emblem Logo */}
+            <div className="h-32 w-auto flex items-center justify-center mx-auto mb-4">
+              <img
+                src="/MFU_logo.png"
+                alt="มหาวิทยาลัยแม่ฟ้าหลวง"
+                className="h-32 w-auto object-contain drop-shadow-md brightness-105"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+
+            <h2 className="text-2xl sm:text-4xl font-black text-amber-300 tracking-wider font-['Prompt','Sarabun',sans-serif]">
+              ระบบติดตามเอกสารการเบิกจ่าย
+            </h2>
+            <p className="text-base sm:text-xl font-semibold text-sky-100 mt-2 font-['Prompt','Sarabun',sans-serif]">
+              ส่วนการเงินและบัญชี มหาวิทยาลัยแม่ฟ้าหลวง
+            </p>
+            <p className="text-xs sm:text-sm font-semibold text-sky-200/90 tracking-wide uppercase mt-1 font-sans">
+              DIVISION OF FINANCE AND ACCOUNTING MAE FAH LUANG UNIVERSITY
+            </p>
+
+            <h3 className="text-3xl sm:text-5xl font-bold text-white mt-6 sm:mt-8 font-['Prompt','Sarabun',sans-serif]">
+              เข้าสู่ระบบ / ลงทะเบียน
+            </h3>
           </div>
 
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-800 mt-6 font-['Prompt','Sarabun',sans-serif]">
-            ระบบติดตามเอกสารการเบิกจ่าย
-          </h2>
-          <p className="text-xs sm:text-sm font-semibold text-[#00a651] mt-1.5">
-            ส่วนการเงินและบัญชี มหาวิทยาลัยแม่ฟ้าหลวง
-          </p>
-          <p className="text-xs text-slate-400 mt-2.5 max-w-xs mx-auto leading-relaxed">
-            ระบบบันทึก คัดแยก และจ่ายงานเอกสารรับเข้า พร้อมซิงค์ข้อมูล Google Sheets แบบ Realtime
-          </p>
+          {/* Bottom Content with White Background */}
+          <div className="p-8 sm:p-14 text-center bg-white">
+            <p className="text-lg sm:text-2xl font-bold text-slate-800 font-['Prompt','Sarabun',sans-serif]">
+              กรุณาลงทะเบียนหรือเข้าสู่ระบบด้วยอีเมล Google
+            </p>
+            
+            <div className="mt-3.5 inline-block">
+              <span className="inline-flex items-center px-5 py-1.5 rounded-full text-sm sm:text-base font-medium bg-sky-50 text-blue-800 border border-sky-200">
+                กำหนดสิทธิ์ผู้ใช้งานต้องเป็นอีเมล @mfu.ac.th เท่านั้น
+              </span>
+            </div>
 
-          {/* Green Login Button */}
-          <button
-            type="button"
-            disabled={isLoading}
-            onClick={handleGoogleLogin}
-            className="w-full mt-7 py-3 px-6 rounded-xl bg-[#00a651] hover:bg-[#009247] active:scale-[0.99] text-white font-medium text-sm flex items-center justify-center gap-2.5 shadow-sm shadow-emerald-200 transition-all cursor-pointer disabled:opacity-75"
-          >
-            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
-            <span>{isLoading ? 'กำลังเข้าสู่ระบบ Google...' : 'เข้าสู่ระบบด้วย Google Account'}</span>
-          </button>
+            {/* Blue Login Button */}
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={handleGoogleLogin}
+              className="w-full mt-8 py-4 sm:py-5 px-8 rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-semibold text-base sm:text-xl flex items-center justify-center gap-3.5 shadow-xl shadow-blue-600/25 transition-all cursor-pointer disabled:opacity-75"
+            >
+              {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <LogIn className="w-6 h-6" />}
+              <span>{isLoading ? 'กำลังเข้าสู่ระบบ Google...' : 'เข้าสู่ระบบด้วย Google Account'}</span>
+            </button>
 
-          <p className="text-[11px] text-slate-400 mt-4 leading-normal">
-            กรุณาเข้าสู่ระบบด้วยบัญชี Google ที่ได้รับสิทธิ์เข้าถึงฐานข้อมูลของมหาวิทยาลัย
-          </p>
+            {/* Information section replacing old text */}
+            <div className="mt-8 pt-6 border-t border-slate-100 text-left max-w-lg mx-auto">
+              <p className="text-sm sm:text-base font-semibold text-slate-700 mb-3 font-['Prompt','Sarabun',sans-serif]">
+                สำหรับการบันทึกข้อมูลระบบติดตามเอกสารการเบิกจ่าย
+              </p>
+              <ul className="space-y-2 text-xs sm:text-sm text-slate-600 pl-2">
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0"></span>
+                  <span>งานตรวจจ่าย</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0"></span>
+                  <span>งานสอบทาน</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0"></span>
+                  <span>งานการเงิน</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0"></span>
+                  <span>งานงบประมาณ</span>
+                </li>
+              </ul>
+            </div>
+          </div>
         </div>
       </div>
 

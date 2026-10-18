@@ -1,5 +1,5 @@
 import React from 'react';
-import { RefreshCw, Code2, LogOut } from 'lucide-react';
+import { RefreshCw, Code2, LogOut, BarChart3, Sun, Moon } from 'lucide-react';
 
 interface NavbarProps {
   onRefresh: () => void;
@@ -11,6 +11,9 @@ interface NavbarProps {
   userName?: string | null;
   userAvatar?: string | null;
   onLogout?: () => void;
+  onOpenReport?: () => void;
+  theme?: 'light' | 'dark';
+  onToggleTheme?: (theme: 'light' | 'dark') => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -21,57 +24,103 @@ export const Navbar: React.FC<NavbarProps> = ({
   userName,
   userAvatar,
   onLogout,
+  onOpenReport,
+  theme = 'light',
+  onToggleTheme,
 }) => {
+  const isDark = theme === 'dark';
+
   return (
-    <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-2xs">
+    <header className={`${isDark ? 'bg-[#0f172a] border-sky-900/60 text-white' : 'bg-white border-sky-100 text-slate-900'} border-b sticky top-0 z-30 shadow-xs transition-colors duration-200`}>
+      <div className="h-1 bg-gradient-to-r from-blue-700 via-sky-500 to-blue-600 w-full" />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-20">
-          {/* Brand Logo & Name matching Image 3 */}
-          <div className="flex items-center gap-3">
-            {/* Green Google Sheets Icon */}
-            <div className="w-11 h-11 rounded-xl bg-[#00a651] flex items-center justify-center text-white shadow-xs shrink-0">
-              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z" />
-              </svg>
+          {/* Brand Logo & Name */}
+          <div className="flex items-center gap-3.5">
+            {/* MFU Logo */}
+            <div className="h-12 w-10 flex items-center justify-center shrink-0">
+              <img
+                src="/MFU_logo.png"
+                alt="มหาวิทยาลัยแม่ฟ้าหลวง"
+                className="h-12 w-auto object-contain drop-shadow-xs"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div>
-              <h1 className="text-base sm:text-lg font-bold text-slate-900 leading-tight font-['Prompt','Sarabun',sans-serif]">
+              <h1 className={`text-base sm:text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'} leading-tight font-['Prompt','Sarabun',sans-serif]`}>
                 ระบบติดตามเอกสารการเบิกจ่าย ส่วนการเงินและบัญชี มหาวิทยาลัยแม่ฟ้าหลวง
               </h1>
-              <p className="text-xs text-slate-500 font-normal mt-0.5">
-                เชื่อมต่อฐานข้อมูล Google Sheets เป็นฐานข้อมูลแบบ Realtime
-              </p>
             </div>
           </div>
 
-          {/* Right Area: User Profile Card (matching Image 3 red box) */}
-          <div className="flex items-center gap-2.5">
-            {/* Optional Utility Buttons */}
+          {/* Right Area: Actions & User Profile Card */}
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            {/* Report / Dashboard Navigation Button */}
+            {onOpenReport && (
+              <button
+                onClick={onOpenReport}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 active:scale-95 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif]"
+                title="เปิดหน้ารายงาน MONITOR Dashboard"
+              >
+                <BarChart3 className="w-4 h-4" />
+                <span>หน้ารายงาน MONITOR</span>
+              </button>
+            )}
+
+            {/* Theme Toggle Button */}
+            {onToggleTheme && (
+              <button
+                onClick={() => onToggleTheme(isDark ? 'light' : 'dark')}
+                title={isDark ? 'เปลี่ยนเป็นธีมสว่าง (ขาว-น้ำเงิน)' : 'เปลี่ยนเป็นธีมมืด (น้ำเงินกรม-ฟ้าสว่าง)'}
+                className={`p-2 rounded-xl border transition-colors cursor-pointer ${
+                  isDark
+                    ? 'text-amber-400 hover:bg-sky-950 border-sky-900'
+                    : 'text-slate-600 hover:text-blue-700 hover:bg-blue-50 border-slate-200'
+                }`}
+              >
+                {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </button>
+            )}
+
+            {/* Google Sheets Connection Config */}
             <button
               onClick={onOpenGasModal}
               title="ตั้งค่าเชื่อมต่อ Google Sheets"
-              className="p-2 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition-colors cursor-pointer"
+              className={`p-2 rounded-xl transition-colors cursor-pointer ${
+                isDark
+                  ? 'text-slate-400 hover:text-sky-300 hover:bg-slate-800'
+                  : 'text-slate-500 hover:text-blue-700 hover:bg-blue-50'
+              }`}
             >
               <Code2 className="w-4 h-4" />
             </button>
 
+            {/* Refresh live data */}
             <button
               onClick={onRefresh}
               disabled={isLoading}
               title="ดึงข้อมูลล่าสุด"
-              className="p-2 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition-colors disabled:opacity-50 cursor-pointer"
+              className={`p-2 rounded-xl transition-colors disabled:opacity-50 cursor-pointer ${
+                isDark
+                  ? 'text-slate-400 hover:text-sky-300 hover:bg-slate-800'
+                  : 'text-slate-500 hover:text-blue-700 hover:bg-blue-50'
+              }`}
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-blue-600' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-blue-500' : ''}`} />
             </button>
 
             {/* Profile Card from Image 3 */}
             {userEmail && (
-              <div className="flex items-center gap-3 px-3.5 py-1.5 border border-slate-200 rounded-2xl bg-white shadow-2xs hover:border-slate-300 transition-all">
-                <div className="text-right hidden sm:block">
-                  <div className="text-sm font-semibold text-slate-800 leading-tight font-['Prompt','Sarabun',sans-serif]">
+              <div className={`flex items-center gap-3 px-3 py-1.5 border rounded-2xl shadow-xs transition-all ${
+                isDark
+                  ? 'border-sky-900/80 bg-[#111e42] text-white hover:border-sky-700'
+                  : 'border-sky-100 bg-white hover:border-sky-300 text-slate-800'
+              }`}>
+                <div className="text-right hidden md:block">
+                  <div className="text-xs font-semibold leading-tight font-['Prompt','Sarabun',sans-serif]">
                     {userName || 'Shongwut Tabunsom'}
                   </div>
-                  <div className="text-xs text-slate-400 leading-tight mt-0.5">
+                  <div className="text-[11px] text-slate-400 leading-tight mt-0.5">
                     {userEmail}
                   </div>
                 </div>
@@ -80,11 +129,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <img
                     src={userAvatar}
                     alt={userName || 'User'}
-                    className="w-9 h-9 rounded-full object-cover border border-slate-200"
+                    className="w-8 h-8 rounded-full object-cover border border-slate-200"
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <div className="w-9 h-9 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-xs">
+                  <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs">
                     {(userName || 'ST').slice(0, 2).toUpperCase()}
                   </div>
                 )}
@@ -106,3 +155,4 @@ export const Navbar: React.FC<NavbarProps> = ({
     </header>
   );
 };
+

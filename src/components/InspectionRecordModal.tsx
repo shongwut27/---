@@ -108,6 +108,22 @@ export const EDIT_GROUP_OPTIONS = [
   'อื่น ๆ',
 ];
 
+// ประเภทเอกสารย่อย Options (12 ตัวเลือก)
+export const SUB_TYPE_OPTIONS = [
+  'งานคืนเงินกองทุุนสำรองเลี้ยงชีพ',
+  'เอกสารสินเชื่อ',
+  'เอกสารประกอบเงินเดือน(slip/หนังสือรับรองภาษี)',
+  'งานเปิด/ปิดบัญชี/ข้อมูลหลักผู้ขาย(โควิด)',
+  'เปลี่ยนแปลงผู้มีอำนาจลงนาม',
+  'รายงานแสดงยอดเงินคงเหลือประจำเดือน',
+  'ฝาก/ถอนเงิน',
+  'ดอกเบี้ยเงินฝาก',
+  'เบิกจ่ายเงินงบประมาณ/โควิด',
+  'โอนเข้าบัญชีเงินเดือน',
+  'งานคืนเงินกองทุนสะสมสมทบ(ทำบันทึก)',
+  'งานคืนเงินกองทุนสะสมสมทบ',
+];
+
 interface SearchableComboboxProps {
   label: string;
   value: string;
@@ -115,6 +131,7 @@ interface SearchableComboboxProps {
   options: string[];
   placeholder?: string;
   id?: string;
+  required?: boolean;
 }
 
 const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
@@ -124,6 +141,7 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
   options,
   placeholder = 'เลือกหรือพิมพ์ค้นหา...',
   id,
+  required,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -139,14 +157,16 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const normalize = (str: string) => str.toLowerCase().replace(/\u0E38+/g, '\u0E38');
   const filteredOptions = options.filter((opt) =>
-    opt.toLowerCase().includes(searchTerm.toLowerCase())
+    normalize(opt).includes(normalize(searchTerm))
   );
 
   return (
     <div className="relative" ref={wrapperRef} id={id}>
       <label className="block text-slate-800 font-bold mb-1.5 text-base sm:text-lg">
         {label}
+        {required && <span className="text-red-500 font-bold ml-1">*</span>}
       </label>
 
       <div className="relative">
@@ -187,7 +207,19 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                 autoFocus
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder={`พิมพ์เพื่อค้นหา (${options.length} รายการ)...`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (filteredOptions.length > 0) {
+                      onChange(filteredOptions[0]);
+                      setIsOpen(false);
+                    } else if (searchTerm.trim()) {
+                      onChange(searchTerm.trim());
+                      setIsOpen(false);
+                    }
+                  }
+                }}
+                placeholder="พิมพ์เพื่อค้นหา..."
                 className="w-full bg-transparent text-base focus:outline-none text-slate-900 placeholder-slate-400 font-normal"
               />
               {searchTerm && (
@@ -264,68 +296,115 @@ export const InspectionRecordModal: React.FC<InspectionRecordModalProps> = ({
   const [status, setStatus] = useState<string>('');
   const [editGroup, setEditGroup] = useState<string>('');
   const [editDetail, setEditDetail] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Initializing state whenever modal opens or selected item changes
+  const prevOpenRef = useRef(false);
+  const prevDocKeyRef = useRef<string | number | null>(null);
+
+  // Initializing state only when modal freshly opens or selected item genuinely changes
   useEffect(() => {
-    if (item) {
-      setSelectedDoc(item);
-      // วันที่ดำเนินการ: แสดงวันและเวลาปัจจุบันโดยอัตโนมัติ (Timestamp) สามารถแก้ไขได้
-      setActionDate(item.actionDate?.trim() || new Date().toLocaleString('th-TH'));
-      setSubType(item.subType || '');
-      setQa(item.qa || '');
-      setAction(item.action || '');
-      setStatus(item.status || item.returnStatus || '');
-      setEditGroup(item.editGroup || '');
-      setEditDetail(item.editDetail || '');
-    } else if (documents.length > 0) {
-      const first = documents[0];
-      setSelectedDoc(first);
-      setActionDate(first.actionDate?.trim() || new Date().toLocaleString('th-TH'));
-      setSubType(first.subType || '');
-      setQa(first.qa || '');
-      setAction(first.action || '');
-      setStatus(first.status || first.returnStatus || '');
-      setEditGroup(first.editGroup || '');
-      setEditDetail(first.editDetail || '');
+    if (!isOpen) {
+      prevOpenRef.current = false;
+      return;
     }
-  }, [item, isOpen, documents]);
+
+    const currentDoc = item || (documents && documents.length > 0 ? documents[0] : null);
+    const docKey = currentDoc ? `${currentDoc.id || currentDoc.rowId || currentDoc.docNo}` : null;
+
+    if (!prevOpenRef.current || prevDocKeyRef.current !== docKey) {
+      prevOpenRef.current = true;
+      prevDocKeyRef.current = docKey;
+
+      if (currentDoc) {
+        setSelectedDoc(currentDoc);
+        const docProvider = currentDoc.providerFinal?.trim() || currentDoc.providerAuto?.trim() || '';
+        const docIsPrakaymas = docProvider.includes('ประกายมาศ');
+        let initSubType = docIsPrakaymas ? (currentDoc.subType || '') : '';
+        let initQa = currentDoc.qa || '';
+        // หากไม่ใช่ประกายมาศและเคยมีค่า QA ไปค้างใน subType ให้ย้ายมาที่ QA
+        if (!docIsPrakaymas && !initQa && currentDoc.subType) {
+          initQa = currentDoc.subType;
+        }
+
+        // วันที่ดำเนินการ: แสดงวันและเวลาปัจจุบันโดยอัตโนมัติ (Timestamp) สามารถแก้ไขได้
+        setActionDate(currentDoc.actionDate?.trim() || new Date().toLocaleString('th-TH'));
+        setSubType(initSubType);
+        setQa(initQa);
+        setAction(currentDoc.action || '');
+        setStatus(currentDoc.status || '');
+        setEditGroup(currentDoc.editGroup || '');
+        setEditDetail(currentDoc.editDetail || '');
+        setErrorMessage(null);
+      }
+    }
+  }, [isOpen, item?.id, item?.rowId]);
 
   if (!isOpen) return null;
+
+  const currentProvider = selectedDoc?.providerFinal?.trim() || selectedDoc?.providerAuto?.trim() || '';
+  const isPrakaymas = currentProvider.includes('ประกายมาศ');
 
   const handleDocSelectChange = (docNo: string) => {
     const found = documents.find((d) => d.docNo === docNo);
     if (found) {
       setSelectedDoc(found);
+      const docProvider = found.providerFinal?.trim() || found.providerAuto?.trim() || '';
+      const docIsPrakaymas = docProvider.includes('ประกายมาศ');
+      let initSubType = docIsPrakaymas ? (found.subType || '') : '';
+      let initQa = found.qa || '';
+      if (!docIsPrakaymas && !initQa && found.subType) {
+        initQa = found.subType;
+      }
+
       setActionDate(found.actionDate?.trim() || new Date().toLocaleString('th-TH'));
-      setSubType(found.subType || '');
-      setQa(found.qa || '');
+      setSubType(initSubType);
+      setQa(initQa);
       setAction(found.action || '');
-      setStatus(found.status || found.returnStatus || '');
+      setStatus(found.status || '');
       setEditGroup(found.editGroup || '');
       setEditDetail(found.editDetail || '');
+      setErrorMessage(null);
     }
   };
 
   const handleResetTimestamp = () => {
     setActionDate(new Date().toLocaleString('th-TH'));
+    if (errorMessage) setErrorMessage(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoc) return;
 
+    // ช่องที่บังคับว่าต้องพิมพ์/เลือก
+    if (!actionDate.trim()) {
+      setErrorMessage('กรุณากรอก "วันที่ดำเนินการ"');
+      return;
+    }
+    if (!action.trim()) {
+      setErrorMessage('กรุณาเลือกหรือระบุ "การดำเนินการ"');
+      return;
+    }
+    if (!status.trim()) {
+      setErrorMessage('กรุณาเลือกหรือระบุ "สถานะ"');
+      return;
+    }
+    if (status.includes('แก้ไข') && !editGroup.trim()) {
+      setErrorMessage('กรณีสถานะมีคำว่าแก้ไข บังคับให้เลือก "Group-กรณีแก้ไข"');
+      return;
+    }
+
+    setErrorMessage(null);
     setIsSaving(true);
     const updated: DocumentItem = {
       ...selectedDoc,
       actionDate: actionDate.trim(),
-      subType: subType.trim(),
+      subType: isPrakaymas ? subType.trim() : '',
       qa: qa.trim(),
       action: action.trim(),
       status: status.trim(),
       editGroup: editGroup.trim(),
       editDetail: editDetail.trim(),
-      // ซิงค์สถานะการส่งคืนเพื่อให้การกรองงานที่ทำเสร็จอัปเดตทันที
-      returnStatus: status.trim() || selectedDoc.returnStatus,
     };
 
     setTimeout(() => {
@@ -439,6 +518,7 @@ export const InspectionRecordModal: React.FC<InspectionRecordModalProps> = ({
                 <label className="text-slate-800 font-bold text-base sm:text-lg flex items-center gap-2">
                   <Clock className="w-5 h-5 text-sky-600" />
                   <span>วันที่ดำเนินการ</span>
+                  <span className="text-red-500 font-bold">*</span>
                   <span className="text-slate-400 font-normal text-xs sm:text-sm">(Timestamp ปัจจุบันอัตโนมัติ / แก้ไขได้)</span>
                 </label>
                 <button
@@ -451,30 +531,35 @@ export const InspectionRecordModal: React.FC<InspectionRecordModalProps> = ({
               </div>
               <input
                 type="text"
+                required
                 value={actionDate}
-                onChange={(e) => setActionDate(e.target.value)}
+                onChange={(e) => {
+                  setActionDate(e.target.value);
+                  if (errorMessage) setErrorMessage(null);
+                }}
                 placeholder="เช่น 3/9/2569 11:30:00"
                 className="w-full px-4 py-3 bg-slate-50 hover:bg-white border border-slate-300 hover:border-sky-400 rounded-xl text-base sm:text-lg font-mono text-slate-900 focus:bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none transition-all shadow-xs"
               />
             </div>
 
-            {/* 2. ประเภทเอกสารย่อย: ช่องพิมพ์ข้อความ (Text Input) */}
-            <div>
-              <label className="block text-slate-800 font-bold mb-1.5 text-base sm:text-lg">
-                ประเภทเอกสารย่อย
-              </label>
-              <input
-                type="text"
+            {/* 2. ประเภทเอกสารย่อย: Dropdown แบบมีไกด์พิมพ์ค้นหาได้ (แสดงเฉพาะผู้ให้บริการคือ ประกายมาศ) */}
+            {isPrakaymas && (
+              <SearchableCombobox
+                label="ประเภทเอกสารย่อย"
                 value={subType}
-                onChange={(e) => setSubType(e.target.value)}
-                placeholder="ระบุประเภทเอกสารย่อย เช่น ค่าใช้จ่ายเดินทาง, คืนเงินยืมทดรอง, ค่าจ้างเหมา..."
-                className="w-full px-4 py-3 bg-slate-50 hover:bg-white border border-slate-300 hover:border-sky-400 rounded-xl text-base sm:text-lg text-slate-900 focus:bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none transition-all shadow-xs"
+                onChange={(val) => {
+                  setSubType(val);
+                  if (errorMessage) setErrorMessage(null);
+                }}
+                options={SUB_TYPE_OPTIONS}
+                placeholder="เลือกหรือพิมพ์ค้นหาประเภทเอกสารย่อย เช่น งานคืนเงินกองทุนสำรองเลี้ยงชีพ..."
+                id="subtype-combobox"
               />
-            </div>
+            )}
 
-            {/* 3. QA.: Dropdown แบบมีไกด์พิมพ์ค้นหาได้ (45 ตัวเลือก) */}
+            {/* 3. QA.: Dropdown แบบมีไกด์พิมพ์ค้นหาได้ */}
             <SearchableCombobox
-              label="QA. (45 ตัวเลือก)"
+              label="QA."
               value={qa}
               onChange={(val) => setQa(val)}
               options={QA_OPTIONS}
@@ -482,49 +567,72 @@ export const InspectionRecordModal: React.FC<InspectionRecordModalProps> = ({
               id="qa-combobox"
             />
 
-            {/* 4. การดำเนินการ: Dropdown แบบมีไกด์พิมพ์ค้นหาได้ (5 ตัวเลือก) */}
+            {/* 4. การดำเนินการ: Dropdown แบบมีไกด์พิมพ์ค้นหาได้ (เลือกแล้วสถานะต้องเป็นค่าว่าง) */}
             <SearchableCombobox
-              label="การดำเนินการ (5 ตัวเลือก)"
+              label="การดำเนินการ"
+              required
               value={action}
-              onChange={(val) => setAction(val)}
+              onChange={(val) => {
+                setAction(val);
+                setStatus('');
+                if (errorMessage) setErrorMessage(null);
+              }}
               options={ACTION_OPTIONS}
               placeholder="เลือกหรือพิมพ์ค้นหาการดำเนินการ เช่น ตรวจสอบ, บันทึกบัญชี..."
               id="action-combobox"
             />
 
-            {/* 5. สถานะ: Dropdown แบบมีไกด์พิมพ์ค้นหาได้ (17 ตัวเลือก) */}
+            {/* 5. สถานะ: Dropdown แบบมีไกด์พิมพ์ค้นหาได้ */}
             <SearchableCombobox
-              label="สถานะ (17 ตัวเลือก)"
+              label="สถานะ"
+              required
               value={status}
-              onChange={(val) => setStatus(val)}
+              onChange={(val) => {
+                setStatus(val);
+                if (errorMessage) setErrorMessage(null);
+              }}
               options={STATUS_OPTIONS}
               placeholder="เลือกหรือพิมพ์ค้นหาสถานะ เช่น ถูกต้อง/ส่งต่องานจ่ายเงิน..."
               id="status-combobox"
             />
 
-            {/* 6. Group-กรณีแก้ไข: Dropdown แบบมีไกด์พิมพ์ค้นหาได้ (11 ตัวเลือก) */}
-            <SearchableCombobox
-              label="Group-กรณีแก้ไข (11 ตัวเลือก)"
-              value={editGroup}
-              onChange={(val) => setEditGroup(val)}
-              options={EDIT_GROUP_OPTIONS}
-              placeholder="เลือกหรือพิมพ์ค้นหากรณีแก้ไข เช่น เอกสารไม่ถูกต้อง..."
-              id="edit-group-combobox"
-            />
+            {/* 6. Group-กรณีแก้ไข: Dropdown แสดงเฉพาะกรณีเลือกสถานะที่มีคำว่า "แก้ไข" */}
+            {status.includes('แก้ไข') && (
+              <SearchableCombobox
+                label="Group-กรณีแก้ไข"
+                required
+                value={editGroup}
+                onChange={(val) => {
+                  setEditGroup(val);
+                  if (errorMessage) setErrorMessage(null);
+                }}
+                options={EDIT_GROUP_OPTIONS}
+                placeholder="เลือกหรือพิมพ์ค้นหากรณีแก้ไข เช่น เอกสารไม่ถูกต้อง..."
+                id="edit-group-combobox"
+              />
+            )}
 
-            {/* 7. รายละเอียดกรณีแก้ไข: ช่องพิมพ์ข้อความ (Textarea/Input) */}
+            {/* 7. หมายเหตุ: ช่องพิมพ์ข้อความ (Textarea/Input) */}
             <div>
               <label className="block text-slate-800 font-bold mb-1.5 text-base sm:text-lg">
-                รายละเอียดกรณีแก้ไข
+                หมายเหตุ
               </label>
               <textarea
                 rows={3}
                 value={editDetail}
                 onChange={(e) => setEditDetail(e.target.value)}
-                placeholder="ระบุรายละเอียดกรณีแก้ไข เอกสารที่ต้องแนบเพิ่ม หรือข้อมูลที่ต้องปรับปรุง..."
+                placeholder="ระบุหมายเหตุ เอกสารที่ต้องแนบเพิ่ม หรือข้อมูลที่ต้องปรับปรุง..."
                 className="w-full px-4 py-3 bg-slate-50 hover:bg-white border border-slate-300 hover:border-sky-400 rounded-xl text-base sm:text-lg text-slate-900 focus:bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none transition-all shadow-xs resize-none"
               />
             </div>
+
+            {/* แสดงข้อความแจ้งเตือนเมื่อยังกรอกข้อมูลบังคับไม่ครบถ้วน */}
+            {errorMessage && (
+              <div className="p-4 bg-rose-50 border border-rose-300 text-rose-800 rounded-xl text-base font-bold flex items-center gap-3 shadow-xs animate-in fade-in duration-200">
+                <AlertCircle className="w-6 h-6 text-rose-600 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
           </div>
 
           {/* Modal Footer */}

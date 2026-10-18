@@ -3,6 +3,7 @@
   "appId": "1:1088149530723:web:5714607d4feeb7fac03056",
   "apiKey": "AIzaSyBCeDYW3syvCIskrXD3SdK0V9ZxmhV893E",
   "authDomain": "ocrtraining-486507.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-3734de0c-dc80-4e4d-957d-31a32499c993",
   "storageBucket": "ocrtraining-486507.firebasestorage.app",
   "messagingSenderId": "1088149530723",
   "measurementId": "",

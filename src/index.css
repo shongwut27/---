@@ -1,1 +1,217 @@
 @import "tailwindcss";
+
+/* ==========================================================================
+   A4 Print Optimization Styles for MONITOR Executive Dashboard
+   ========================================================================== */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 6mm 8mm;
+  }
+
+  /* Force white background and sharp dark text across all elements */
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 11pt !important;
+    line-height: 1.3 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+
+  /* Hide interactive controls, buttons, toolbars from printed output */
+  .no-print,
+  button,
+  select,
+  input,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Reset main wrapper to pure white paper mode */
+  .min-h-screen {
+    min-height: auto !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    padding: 0 !important;
+  }
+
+  /* Header banner formatted cleanly for official paper reporting */
+  header {
+    background: #ffffff !important;
+    border-bottom: 2px solid #0284c7 !important;
+    padding: 4mm 0 !important;
+    margin-bottom: 4mm !important;
+  }
+
+  header h1,
+  header div,
+  header p,
+  header span {
+    color: #0f172a !important;
+  }
+
+  header .text-sky-200,
+  header .text-sky-300 {
+    color: #0369a1 !important;
+  }
+
+  header .text-amber-300,
+  header .text-amber-400 {
+    color: #b45309 !important;
+  }
+
+  header img {
+    filter: none !important;
+    height: 48px !important;
+  }
+
+  /* Outer card containers turned to clean white cards with crisp slate borders */
+  .rounded-2xl,
+  .rounded-3xl,
+  .rounded-xl {
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+  }
+
+  /* Card inner dark backgrounds overridden for paper readability */
+  [class*="bg-[#0"],
+  [class*="bg-[#1"],
+  .bg-black\/30,
+  .bg-black\/40,
+  .bg-black\/50,
+  .bg-slate-900,
+  .bg-slate-950,
+  .bg-sky-950 {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  /* Text color overrides for print readability */
+  .text-white,
+  .text-slate-100,
+  .text-slate-200,
+  .text-slate-300 {
+    color: #0f172a !important;
+  }
+
+  .text-slate-400,
+  .text-slate-500 {
+    color: #475569 !important;
+  }
+
+  .text-sky-200,
+  .text-sky-300,
+  .text-sky-400 {
+    color: #0284c7 !important;
+  }
+
+  /* Status Colors: Vivid, high-contrast, crystal clear */
+  .text-amber-400,
+  .text-amber-300,
+  .text-amber-500 {
+    color: #b45309 !important;
+  }
+
+  .text-\[\#4ade80\],
+  .text-emerald-400,
+  .text-emerald-500 {
+    color: #047857 !important;
+  }
+
+  .text-\[\#f87171\],
+  .text-rose-400,
+  .text-rose-500 {
+    color: #b91c1c !important;
+  }
+
+  /* KPI boxes in print mode */
+  .border-amber-400,
+  .border-amber-500 {
+    background: #fffbeb !important;
+    border: 2px solid #f59e0b !important;
+  }
+
+  .border-emerald-400,
+  .border-emerald-500 {
+    background: #ecfdf5 !important;
+    border: 2px solid #10b981 !important;
+  }
+
+  .border-rose-400,
+  .border-rose-500 {
+    background: #fff1f2 !important;
+    border: 2px solid #f43f5e !important;
+  }
+
+  /* Stacked Progress Bars: keep colors filled solidly */
+  .bg-emerald-500,
+  .bg-emerald-600 {
+    background-color: #10b981 !important;
+    color: #ffffff !important;
+  }
+
+  .bg-rose-500,
+  .bg-rose-600,
+  .bg-\[\#ef4444\] {
+    background-color: #ef4444 !important;
+    color: #ffffff !important;
+  }
+
+  .bg-slate-200\/40,
+  .bg-slate-700\/40,
+  .bg-slate-800 {
+    background-color: #e2e8f0 !important;
+  }
+
+  /* Tables: clean, crisp black borders and light headers */
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  thead,
+  th {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+    border-bottom: 2px solid #94a3b8 !important;
+    font-weight: 700 !important;
+  }
+
+  tbody tr {
+    border-bottom: 1px solid #e2e8f0 !important;
+  }
+
+  td {
+    color: #0f172a !important;
+  }
+
+  tfoot {
+    background-color: #f8fafc !important;
+    border-top: 2px solid #64748b !important;
+    color: #0f172a !important;
+  }
+
+  /* Prevent awkward page breaks in charts and tables */
+  .grid,
+  .table-container,
+  table,
+  tr,
+  .rounded-2xl {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+}
