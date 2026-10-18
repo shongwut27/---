@@ -14,6 +14,8 @@ import {
   Calendar,
   FileText,
   ChevronDown,
+  LayoutGrid,
+  Table2,
 } from 'lucide-react';
 
 interface DepartmentTabsProps {
@@ -41,6 +43,8 @@ interface DepartmentTabsProps {
   onSelectedDocTypesChange?: (docTypes: string[]) => void;
   availableDocTypes?: string[];
   theme?: 'light' | 'dark';
+  displayMode?: 'CARD' | 'TABLE';
+  onDisplayModeChange?: (mode: 'CARD' | 'TABLE') => void;
 }
 
 export const DepartmentTabs: React.FC<DepartmentTabsProps> = ({
@@ -68,6 +72,8 @@ export const DepartmentTabs: React.FC<DepartmentTabsProps> = ({
   onSelectedDocTypesChange,
   availableDocTypes = [],
   theme = 'light',
+  displayMode = 'CARD',
+  onDisplayModeChange,
 }) => {
   const isDark = theme === 'dark';
   const [isDocTypeDropdownOpen, setIsDocTypeDropdownOpen] = useState(false);
@@ -239,6 +245,50 @@ export const DepartmentTabs: React.FC<DepartmentTabsProps> = ({
               </p>
             </div>
           </div>
+
+          {/* ปุ่มสลับการแสดงผล: แบบการ์ด vs แบบตาราง */}
+          {onDisplayModeChange && (
+            <div className={`inline-flex items-center p-1 rounded-xl border self-start sm:self-auto ${
+              isDark
+                ? 'bg-[#111e3b] border-sky-800/80'
+                : 'bg-slate-100/90 border-slate-200/80'
+            }`}>
+              <button
+                type="button"
+                onClick={() => onDisplayModeChange('CARD')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] ${
+                  displayMode === 'CARD'
+                    ? isDark
+                      ? 'bg-sky-600 text-white shadow-sm'
+                      : 'bg-white text-blue-700 shadow-xs border border-blue-100'
+                    : isDark
+                    ? 'text-slate-300 hover:text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="แสดงผลแบบการ์ด"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span>แบบการ์ด</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onDisplayModeChange('TABLE')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] ${
+                  displayMode === 'TABLE'
+                    ? isDark
+                      ? 'bg-sky-600 text-white shadow-sm'
+                      : 'bg-white text-blue-700 shadow-xs border border-blue-100'
+                    : isDark
+                    ? 'text-slate-300 hover:text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="แสดงผลแบบตาราง"
+              >
+                <Table2 className="w-3.5 h-3.5" />
+                <span>แบบตาราง</span>
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">

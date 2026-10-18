@@ -1,10 +1,10 @@
 import React from 'react';
-import { RefreshCw, Code2, LogOut, BarChart3, Sun, Moon } from 'lucide-react';
+import { RefreshCw, LogOut, BarChart3, Sun, Moon } from 'lucide-react';
 
 interface NavbarProps {
   onRefresh: () => void;
   isLoading: boolean;
-  onOpenGasModal: () => void;
+  onOpenGasModal?: () => void;
   onOpenNewDocModal: () => void;
   onOpenSettingsModal: () => void;
   userEmail?: string | null;
@@ -19,7 +19,6 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   onRefresh,
   isLoading,
-  onOpenGasModal,
   userEmail,
   userName,
   userAvatar,
@@ -40,10 +39,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* MFU Logo */}
             <div className="h-12 w-10 flex items-center justify-center shrink-0">
               <img
-                src="/MFU_logo.png"
+                src="/mfu_logo.png"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (!target.src.includes('MFU_logo_highres.png')) {
+                    target.src = '/MFU_logo_highres.png';
+                  }
+                }}
                 alt="มหาวิทยาลัยแม่ฟ้าหลวง"
                 className="h-12 w-auto object-contain drop-shadow-xs"
-                referrerPolicy="no-referrer"
               />
             </div>
             <div>
@@ -81,19 +85,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </button>
             )}
-
-            {/* Google Sheets Connection Config */}
-            <button
-              onClick={onOpenGasModal}
-              title="ตั้งค่าเชื่อมต่อ Google Sheets"
-              className={`p-2 rounded-xl transition-colors cursor-pointer ${
-                isDark
-                  ? 'text-slate-400 hover:text-sky-300 hover:bg-slate-800'
-                  : 'text-slate-500 hover:text-blue-700 hover:bg-blue-50'
-              }`}
-            >
-              <Code2 className="w-4 h-4" />
-            </button>
 
             {/* Refresh live data */}
             <button

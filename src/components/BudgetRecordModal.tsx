@@ -148,6 +148,7 @@ export const BudgetRecordModal: React.FC<BudgetRecordModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isConfirmingClear, setIsConfirmingClear] = useState(false);
 
   // Sync state with selected document
   useEffect(() => {
@@ -376,12 +377,12 @@ export const BudgetRecordModal: React.FC<BudgetRecordModalProps> = ({
                       >
                         <div className="space-y-0.5">
                           <div className="font-bold text-slate-800 flex items-center space-x-2">
-                            <span>{doc.docNo || 'ไม่มีเลขที่เอกสาร'}</span>
-                            {doc.receiveNo && (
-                              <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-normal">
-                                รับ #{doc.receiveNo}
-                              </span>
-                            )}
+                            <span className="font-extrabold font-mono text-slate-900">
+                              ทะเบียนรับ {doc.receiveNo || '-'}
+                            </span>
+                            <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] font-normal">
+                              เลขที่ {doc.docNo || '-'}
+                            </span>
                           </div>
                           <div className="text-[11px] text-slate-500">
                             {doc.agency || doc.sender || '-'}
@@ -404,14 +405,12 @@ export const BudgetRecordModal: React.FC<BudgetRecordModalProps> = ({
                 </div>
                 <div>
                   <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                    <span className="font-bold text-slate-800 text-sm">
-                      {selectedDoc.docNo || 'ไม่มีเลขที่เอกสาร'}
+                    <span className="px-2.5 py-0.5 bg-amber-600 text-white rounded-md text-sm font-extrabold font-mono">
+                      ทะเบียนรับ: {selectedDoc.receiveNo || '-'}
                     </span>
-                    {selectedDoc.receiveNo && (
-                      <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-300 rounded-md text-xs font-semibold">
-                        ทะเบียนรับ: {selectedDoc.receiveNo}
-                      </span>
-                    )}
+                    <span className="text-[11px] text-slate-500 font-mono font-normal">
+                      เลขที่เอกสาร: {selectedDoc.docNo || '-'}
+                    </span>
                     {selectedDoc.rowId && (
                       <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-xs">
                         แถวที่ {selectedDoc.rowId}
@@ -741,7 +740,53 @@ export const BudgetRecordModal: React.FC<BudgetRecordModalProps> = ({
           </div>
 
           {/* Footer Actions */}
-          <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-200">
+          <div className="flex flex-wrap items-center justify-end gap-3 pt-4 border-t border-slate-200">
+            <div className="mr-auto">
+              {isConfirmingClear ? (
+                <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-200 px-2.5 py-1.5 rounded-xl">
+                  <span className="text-xs font-bold text-rose-800">ยืนยันล้างค่าเป็นว่าง?</span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!selectedDoc) return;
+                      const cleared: DocumentItem = {
+                        ...selectedDoc,
+                        budgetActionDate: '',
+                        budgetFR: '',
+                        budgetFC: '',
+                        budgetPR: '',
+                        budgetStatus: '',
+                        budgetReceiveDate: '',
+                        budgetCoverDate: '',
+                        budgetDocSetDate: '',
+                      };
+                      setIsConfirmingClear(false);
+                      await onSave(cleared);
+                      onClose();
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 cursor-pointer"
+                  >
+                    ยืนยันล้างค่าว่าง
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsConfirmingClear(false)}
+                    className="px-2 py-1 rounded-lg text-xs font-semibold text-slate-600 hover:bg-white cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmingClear(true)}
+                  className="px-3 py-2.5 rounded-xl text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
+                  title="ล้างข้อมูลงานงบประมาณที่เคยบันทึกให้เป็นค่าว่างเหมือนเดิม"
+                >
+                  ล้างข้อมูลเป็นค่าว่าง
+                </button>
+              )}
+            </div>
             <button
               type="button"
               onClick={onClose}

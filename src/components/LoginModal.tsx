@@ -94,10 +94,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onLogin }) => {
           {/* MFU Logo */}
           <div className="h-9 w-7 flex items-center justify-center shrink-0">
             <img
-              src="/MFU_logo.png"
+              src="/mfu_logo.png"
+              onError={(e) => {
+                const target = e.currentTarget;
+                if (!target.src.includes('MFU_logo_highres.png')) {
+                  target.src = '/MFU_logo_highres.png';
+                }
+              }}
               alt="มหาวิทยาลัยแม่ฟ้าหลวง"
               className="h-9 w-auto object-contain"
-              referrerPolicy="no-referrer"
             />
           </div>
           <span className="text-sm font-semibold text-slate-800 font-['Prompt','Sarabun',sans-serif]">
@@ -117,10 +122,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onLogin }) => {
             {/* MFU Emblem Logo */}
             <div className="h-32 w-auto flex items-center justify-center mx-auto mb-4">
               <img
-                src="/MFU_logo.png"
+                src="/mfu_logo.png"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (!target.src.includes('MFU_logo_highres.png')) {
+                    target.src = '/MFU_logo_highres.png';
+                  }
+                }}
                 alt="มหาวิทยาลัยแม่ฟ้าหลวง"
                 className="h-32 w-auto object-contain drop-shadow-md brightness-105"
-                referrerPolicy="no-referrer"
               />
             </div>
 

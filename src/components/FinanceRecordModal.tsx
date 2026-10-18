@@ -179,6 +179,7 @@ export const FinanceRecordModal: React.FC<FinanceRecordModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isConfirmingClear, setIsConfirmingClear] = useState(false);
 
   const tabs: { id: FinanceTabType; number: number; label: string; shortDesc: string }[] = [
     { id: 'finance', number: 1, label: 'งานการเงิน', shortDesc: 'จัดทำเช็ค/โอนเงิน' },
@@ -409,12 +410,12 @@ export const FinanceRecordModal: React.FC<FinanceRecordModalProps> = ({
                     >
                       <div className="space-y-0.5">
                         <div className="font-bold text-slate-800 flex items-center space-x-2">
-                          <span>{doc.docNo || 'ไม่มีเลขที่เอกสาร'}</span>
-                          {doc.receiveNo && (
-                            <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-normal">
-                              รับ #{doc.receiveNo}
-                            </span>
-                          )}
+                          <span className="font-extrabold font-mono text-slate-900">
+                            ทะเบียนรับ {doc.receiveNo || '-'}
+                          </span>
+                          <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] font-normal">
+                            เลขที่ {doc.docNo || '-'}
+                          </span>
                         </div>
                         <div className="text-[11px] text-slate-500">
                           {doc.agency || doc.sender || '-'}
@@ -436,14 +437,12 @@ export const FinanceRecordModal: React.FC<FinanceRecordModalProps> = ({
                 </div>
                 <div>
                   <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                    <span className="font-bold text-slate-800 text-sm">
-                      {selectedDoc.docNo || 'ไม่มีเลขที่เอกสาร'}
+                    <span className="px-2.5 py-0.5 bg-emerald-600 text-white rounded-md text-sm font-extrabold font-mono">
+                      ทะเบียนรับ: {selectedDoc.receiveNo || '-'}
                     </span>
-                    {selectedDoc.receiveNo && (
-                      <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-xs font-semibold">
-                        ทะเบียนรับ: {selectedDoc.receiveNo}
-                      </span>
-                    )}
+                    <span className="text-[11px] text-slate-500 font-mono font-normal">
+                      เลขที่เอกสาร: {selectedDoc.docNo || '-'}
+                    </span>
                     {selectedDoc.rowId && (
                       <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-xs">
                         แถวที่ {selectedDoc.rowId}
@@ -898,12 +897,12 @@ export const FinanceRecordModal: React.FC<FinanceRecordModalProps> = ({
 
           {/* Footer Actions & Navigation */}
           <div className="pt-3 border-t border-slate-200 flex flex-col-reverse sm:flex-row items-center justify-between gap-3">
-            <div className="flex items-center space-x-2 w-full sm:w-auto justify-between sm:justify-start">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
               <button
                 type="button"
                 onClick={goToPrevTab}
                 disabled={currentTabIndex === 0}
-                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-slate-100 text-slate-700 font-semibold text-xs rounded-xl transition-colors flex items-center space-x-1 cursor-pointer disabled:cursor-not-allowed"
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-slate-100 text-slate-700 font-semibold text-xs rounded-xl transition-colors flex items-center space-x-1 cursor-pointer disabled:cursor-not-allowed"
               >
                 <ChevronLeft className="w-4 h-4" />
                 <span>หน้าก่อนหน้า</span>
@@ -913,11 +912,60 @@ export const FinanceRecordModal: React.FC<FinanceRecordModalProps> = ({
                 type="button"
                 onClick={goToNextTab}
                 disabled={currentTabIndex === tabs.length - 1}
-                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-slate-100 text-slate-700 font-semibold text-xs rounded-xl transition-colors flex items-center space-x-1 cursor-pointer disabled:cursor-not-allowed"
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-slate-100 text-slate-700 font-semibold text-xs rounded-xl transition-colors flex items-center space-x-1 cursor-pointer disabled:cursor-not-allowed"
               >
                 <span>หน้าถัดไป</span>
                 <ChevronRight className="w-4 h-4" />
               </button>
+
+              {isConfirmingClear ? (
+                <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-200 px-2.5 py-1.5 rounded-xl">
+                  <span className="text-xs font-bold text-rose-800">ยืนยันล้างค่าเป็นว่าง?</span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!selectedDoc) return;
+                      const cleared: DocumentItem = {
+                        ...selectedDoc,
+                        financeReceiveDate: '',
+                        financePaymentType: '',
+                        financePreparer: '',
+                        financeUrgentCheck: '',
+                        financeActionDate: '',
+                        financeReviewDate: '',
+                        disbursementDate: '',
+                        disbursementPayer: '',
+                        disbursementNotifyDate: '',
+                        disbursementActivityStartDate: '',
+                        disbursementActivityEndDate: '',
+                        financeIssueDate: '',
+                        financeIssueDetail: '',
+                      };
+                      setIsConfirmingClear(false);
+                      await onSave(cleared);
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition-colors cursor-pointer"
+                  >
+                    ยืนยันล้างค่าว่าง
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsConfirmingClear(false)}
+                    className="px-2 py-1 rounded-lg text-xs font-semibold text-slate-600 hover:bg-white transition-colors cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmingClear(true)}
+                  className="px-3 py-2 rounded-xl text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
+                  title="ล้างข้อมูลงานการเงินที่เคยบันทึกไว้ให้กลับเป็นค่าว่างเหมือนเดิม"
+                >
+                  ล้างข้อมูลเป็นค่าว่าง
+                </button>
+              )}
             </div>
 
             <div className="flex items-center space-x-3 w-full sm:w-auto justify-end">
@@ -936,7 +984,7 @@ export const FinanceRecordModal: React.FC<FinanceRecordModalProps> = ({
                 {isSaving ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>กำลังบันทึกลง Google Sheet...</span>
+                    <span>กำลังบันทึกลง Supabase...</span>
                   </>
                 ) : (
                   <>

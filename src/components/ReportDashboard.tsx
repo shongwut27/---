@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { DocumentItem, GroupedDocument, DepartmentType } from '../types';
 import { isReviewProviderFinal } from './ReviewRecordModal';
 import { HistoryModal } from './HistoryModal';
+import { calculateWorkingDays } from '../utils/workingDays';
 import {
   BarChart3,
   Calendar,
@@ -26,6 +27,11 @@ import {
   Eye,
   Info,
   Printer,
+  Download,
+  ShieldCheck,
+  AlertTriangle,
+  Award,
+  Activity,
 } from 'lucide-react';
 
 interface ReportDashboardProps {
@@ -44,13 +50,13 @@ type ViewSection = 'LOOKER_MOCKUP' | 'ALL_SECTIONS' | 'DAILY' | 'MONTHLY' | 'TOT
 
 // 10 โต๊ะ/ผู้ให้บริการ สำหรับงานตรวจจ่าย (โต๊ะ 1 ถึง 10)
 export const INSPECTION_STAFF_MEMBERS = [
-  'อภิญญา',
+  'ภาคินี',
   'พรนัชชา',
   'ดารารัตน์',
   'สาโรจน์',
   'ละอองดาว',
   'ธนัฏพร',
-  'ภาคินี',
+  'อภิญญา',
   'ทรงวุฒิ',
   'ดุษฎา',
   'ทิพาธร',
@@ -78,11 +84,12 @@ const normalizeInspectionStaff = (raw?: string): string | null => {
   return null;
 };
 
-// Helper: Check if document type belongs to งานตรวจจ่าย
+// Helper: Check if document type belongs to งานตรวจจ่าย (ทุกประเภท ยกเว้น งานเบิกจ่ายเงิน)
 const isInspectionDocType = (rawDocType?: string): boolean => {
-  if (!rawDocType) return false;
+  if (!rawDocType) return true;
   const t = rawDocType.trim();
-  return INSPECTION_DOC_TYPES.some((dt) => t === dt || t.includes(dt) || dt.includes(t));
+  if (t === 'งานเบิกจ่ายเงิน' || t.includes('งานเบิกจ่ายเงิน')) return false;
+  return true;
 };
 
 // Helper: Normalize document type to official inspection type
@@ -267,6 +274,9 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
         return true;
       }
       if (currentDept === 'งานตรวจจ่าย') {
+        const p = item.providerFinal?.trim() || item.providerChange?.trim() || item.providerAuto?.trim() || '';
+        if (p === 'งานเบิกจ่ายเงิน' || p.includes('งานเบิกจ่ายเงิน')) return false;
+        if (item.docType?.trim() === 'งานเบิกจ่ายเงิน' || item.docType?.includes('งานเบิกจ่ายเงิน')) return false;
         if (isReviewProviderFinal(item.providerFinal)) return false;
         if (item.department !== 'งานตรวจจ่าย') return false;
         return true;
@@ -274,37 +284,8 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
       return item.department === currentDept;
     });
 
-    // Deduplicate by receiveNo ให้ตรงกับการ์ดในหน้าหลัก 100%
-    const recvMap = new Map<string, DocumentItem>();
-    const deduplicatedResult: DocumentItem[] = [];
-
-    for (const doc of filtered) {
-      const recv = (doc.receiveNo || '').trim();
-      if (recv) {
-        if (!recvMap.has(recv)) {
-          recvMap.set(recv, doc);
-          deduplicatedResult.push(doc);
-        } else {
-          const existing = recvMap.get(recv)!;
-          const existingRound = existing.round || 0;
-          const curRound = doc.round || 0;
-          const existingRow = Number(existing.rowId) || 0;
-          const curRow = Number(doc.rowId) || 0;
-
-          if (curRound > existingRound || (curRound === existingRound && curRow > existingRow)) {
-            const idx = deduplicatedResult.indexOf(existing);
-            if (idx !== -1) {
-              deduplicatedResult[idx] = doc;
-            }
-            recvMap.set(recv, doc);
-          }
-        }
-      } else {
-        deduplicatedResult.push(doc);
-      }
-    }
-
-    return deduplicatedResult;
+    // แสดงผลข้อมูลตรงตามฐานข้อมูลทุกรายการ 100%
+    return filtered;
   }, [groupedDocuments, currentDept]);
 
   // Helper ดึงวันที่ของเอกสารตามแต่ละฝ่าย
@@ -1037,8 +1018,11 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
     period: 'DAILY' | 'MONTHLY' | 'TOTAL' = 'DAILY',
     periodLabel: string = 'วันนี้'
   ) => {
+    const doneRate = data.totalReceived > 0 ? Math.round((data.completed / data.totalReceived) * 100) : 0;
+    const pendRate = data.totalReceived > 0 ? 100 - doneRate : 0;
+
     return (
-      <div className="grid grid-cols-3 gap-3 sm:gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         {/* 1. รับเอกสาร */}
         <div
           onDoubleClick={() =>
@@ -1049,27 +1033,27 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
               period
             )
           }
-          className={`rounded-2xl p-4 sm:p-6 text-center border-2 sm:border-3 shadow-xl transition-all cursor-pointer hover:scale-[1.01] active:scale-[0.99] select-none group ${
+          className={`rounded-2xl p-3.5 sm:p-4 text-center border-2 shadow-md transition-all cursor-pointer hover:scale-[1.01] active:scale-[0.99] select-none group relative overflow-hidden ${
             isDark
-              ? 'bg-gradient-to-b from-[#131d3d] via-[#0b1228] to-[#060a17] border-[#f59e0b] shadow-amber-950/30 hover:border-amber-400'
-              : 'bg-gradient-to-b from-amber-50 to-amber-100/80 border-amber-500 shadow-amber-500/15 hover:border-amber-600'
+              ? 'bg-gradient-to-b from-[#131d3d] via-[#0b1228] to-[#060a17] border-amber-500/80 shadow-amber-950/20 hover:border-amber-400'
+              : 'bg-gradient-to-b from-amber-50/90 to-white border-amber-400 shadow-amber-500/10 hover:border-amber-500'
           }`}
           title="ดับเบิ้ลคลิกเพื่อดูรายละเอียดรายการเอกสารรับทั้งหมด"
         >
-          <div className={`text-base sm:text-2xl font-black font-['Prompt','Sarabun',sans-serif] tracking-wide flex items-center justify-center gap-2 ${
+          <div className={`text-xs sm:text-sm font-bold font-['Prompt','Sarabun',sans-serif] tracking-wide flex items-center justify-center gap-1.5 ${
             isDark ? 'text-amber-200' : 'text-amber-900'
           }`}>
             <span>📥</span>
-            <span>รับเอกสาร</span>
+            <span>รับเอกสารเข้า</span>
           </div>
-          <div className={`text-4xl sm:text-6xl md:text-7xl font-black font-mono mt-1.5 sm:mt-2 tracking-tight ${
-            isDark ? 'text-amber-300 drop-shadow-[0_2px_12px_rgba(245,158,11,0.35)]' : 'text-amber-700'
+          <div className={`text-2xl sm:text-3xl md:text-4xl font-black font-mono mt-1 tracking-tight ${
+            isDark ? 'text-amber-300' : 'text-amber-700'
           }`}>
             {data.totalReceived.toLocaleString()}
           </div>
-          <div className={`text-xs sm:text-sm font-bold mt-1 ${isDark ? 'text-amber-400/80' : 'text-amber-800/80'} flex items-center justify-center gap-1`}>
+          <div className={`text-[11px] font-semibold mt-1 ${isDark ? 'text-amber-400/80' : 'text-amber-700/80'} flex items-center justify-center gap-1`}>
             <span>ฉบับทั้งหมด</span>
-            <span className="text-[10px] opacity-75 hidden sm:inline">(ดับเบิ้ลคลิกเพื่อดู)</span>
+            <span className="text-[10px] opacity-70 hidden sm:inline">(ดับเบิ้ลคลิกเพื่อดู)</span>
           </div>
         </div>
 
@@ -1083,25 +1067,25 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
               period
             )
           }
-          className={`rounded-2xl p-4 sm:p-6 text-center border-2 sm:border-3 shadow-xl transition-all cursor-pointer hover:scale-[1.01] active:scale-[0.99] select-none group ${
+          className={`rounded-2xl p-3.5 sm:p-4 text-center border-2 shadow-md transition-all cursor-pointer hover:scale-[1.01] active:scale-[0.99] select-none group relative overflow-hidden ${
             isDark
-              ? 'bg-gradient-to-b from-[#0c2e1b] via-[#081e13] to-[#04120b] border-[#22c55e] shadow-emerald-950/30 hover:border-emerald-400'
-              : 'bg-gradient-to-b from-emerald-50 to-emerald-100/80 border-emerald-500 shadow-emerald-500/15 hover:border-emerald-600'
+              ? 'bg-gradient-to-b from-[#0c2e1b] via-[#081e13] to-[#04120b] border-emerald-500/80 shadow-emerald-950/20 hover:border-emerald-400'
+              : 'bg-gradient-to-b from-emerald-50/90 to-white border-emerald-500 shadow-emerald-500/10 hover:border-emerald-600'
           }`}
           title="ดับเบิ้ลคลิกเพื่อดูรายละเอียดรายการที่แล้วเสร็จ"
         >
-          <div className={`text-base sm:text-2xl font-black font-['Prompt','Sarabun',sans-serif] tracking-wide flex items-center justify-center gap-2 ${
+          <div className={`text-xs sm:text-sm font-bold font-['Prompt','Sarabun',sans-serif] tracking-wide flex items-center justify-center gap-1.5 ${
             isDark ? 'text-emerald-200' : 'text-emerald-900'
           }`}>
             <span>✅</span>
-            <span>แล้วเสร็จ</span>
+            <span>ดำเนินการแล้วเสร็จ</span>
           </div>
-          <div className="text-4xl sm:text-6xl md:text-7xl font-black text-[#22c55e] font-mono mt-1.5 sm:mt-2 tracking-tight drop-shadow-[0_2px_12px_rgba(34,197,94,0.35)]">
+          <div className="text-2xl sm:text-3xl md:text-4xl font-black text-emerald-500 font-mono mt-1 tracking-tight">
             {data.completed.toLocaleString()}
           </div>
-          <div className={`text-xs sm:text-sm font-bold mt-1 ${isDark ? 'text-emerald-400/80' : 'text-emerald-800/80'} flex items-center justify-center gap-1`}>
-            <span>{data.totalReceived > 0 ? `${Math.round((data.completed / data.totalReceived) * 100)}% ของงานรับ` : '0%'}</span>
-            <span className="text-[10px] opacity-75 hidden sm:inline">(ดับเบิ้ลคลิกเพื่อดู)</span>
+          <div className={`text-[11px] font-semibold mt-1 ${isDark ? 'text-emerald-400/80' : 'text-emerald-700/80'} flex items-center justify-center gap-1`}>
+            <span>สำเร็จ {doneRate}% ของงานรับ</span>
+            <span className="text-[10px] opacity-70 hidden sm:inline">(ดับเบิ้ลคลิก)</span>
           </div>
         </div>
 
@@ -1115,27 +1099,27 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
               period
             )
           }
-          className={`rounded-2xl p-4 sm:p-6 text-center border-2 sm:border-3 shadow-xl transition-all cursor-pointer hover:scale-[1.01] active:scale-[0.99] select-none group ${
+          className={`rounded-2xl p-3.5 sm:p-4 text-center border-2 shadow-md transition-all cursor-pointer hover:scale-[1.01] active:scale-[0.99] select-none group relative overflow-hidden ${
             isDark
-              ? 'bg-gradient-to-b from-[#330f16] via-[#200a0e] to-[#120508] border-[#dc2626] shadow-rose-950/30 hover:border-rose-400'
-              : 'bg-gradient-to-b from-rose-50 to-rose-100/80 border-rose-500 shadow-rose-500/15 hover:border-rose-600'
+              ? 'bg-gradient-to-b from-[#330f16] via-[#200a0e] to-[#120508] border-rose-500/80 shadow-rose-950/20 hover:border-rose-400'
+              : 'bg-gradient-to-b from-rose-50/90 to-white border-rose-500 shadow-rose-500/10 hover:border-rose-600'
           }`}
           title="ดับเบิ้ลคลิกเพื่อดูรายละเอียดรายการที่อยู่ระหว่างดำเนินการ"
         >
-          <div className={`text-base sm:text-2xl font-black font-['Prompt','Sarabun',sans-serif] tracking-wide flex items-center justify-center gap-2 ${
+          <div className={`text-xs sm:text-sm font-bold font-['Prompt','Sarabun',sans-serif] tracking-wide flex items-center justify-center gap-1.5 ${
             isDark ? 'text-rose-200' : 'text-rose-900'
           }`}>
             <span>⏳</span>
             <span>ระหว่างดำเนินการ</span>
           </div>
-          <div className={`text-4xl sm:text-6xl md:text-7xl font-black font-mono mt-1.5 sm:mt-2 tracking-tight ${
-            isDark ? 'text-[#f87171] drop-shadow-[0_2px_12px_rgba(248,113,113,0.35)]' : 'text-rose-600'
+          <div className={`text-2xl sm:text-3xl md:text-4xl font-black font-mono mt-1 tracking-tight ${
+            isDark ? 'text-rose-400' : 'text-rose-600'
           }`}>
             {data.pending.toLocaleString()}
           </div>
-          <div className={`text-xs sm:text-sm font-bold mt-1 ${isDark ? 'text-rose-400/80' : 'text-rose-800/80'} flex items-center justify-center gap-1`}>
-            <span>{data.totalReceived > 0 ? `${100 - Math.round((data.completed / data.totalReceived) * 100)}% คงค้าง` : '0%'}</span>
-            <span className="text-[10px] opacity-75 hidden sm:inline">(ดับเบิ้ลคลิกเพื่อดู)</span>
+          <div className={`text-[11px] font-semibold mt-1 ${isDark ? 'text-rose-400/80' : 'text-rose-700/80'} flex items-center justify-center gap-1`}>
+            <span>คงค้าง {pendRate}%</span>
+            <span className="text-[10px] opacity-70 hidden sm:inline">(ดับเบิ้ลคลิก)</span>
           </div>
         </div>
       </div>
@@ -1145,18 +1129,18 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
   // 1:1 Looker Studio Helper: Small Legend Bar
   const renderLookerLegend = (doneText: string, pendingText: string) => {
     return (
-      <div className="flex items-center justify-center gap-6 sm:gap-10 py-2.5 flex-wrap">
-        <div className="flex items-center gap-2.5 bg-black/25 px-4 py-2 rounded-xl border border-slate-700/50 shadow-sm">
-          <span className="w-5 h-4 bg-[#22c55e] rounded-xs shrink-0 inline-block shadow-sm"></span>
-          <span className={`text-sm sm:text-lg font-black font-['Prompt','Sarabun',sans-serif] ${
-            isDark ? 'text-emerald-300' : 'text-emerald-800'
-          }`}>{doneText}</span>
+      <div className="flex items-center justify-center gap-4 sm:gap-6 py-1.5 flex-wrap">
+        <div className={`flex items-center gap-2 px-3 py-1 rounded-lg border text-xs font-bold ${
+          isDark ? 'bg-black/25 border-slate-700/50 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+        }`}>
+          <span className="w-3 h-3 bg-[#22c55e] rounded-xs shrink-0 inline-block"></span>
+          <span className="font-['Prompt','Sarabun',sans-serif]">{doneText}</span>
         </div>
-        <div className="flex items-center gap-2.5 bg-black/25 px-4 py-2 rounded-xl border border-slate-700/50 shadow-sm">
-          <span className="w-5 h-4 bg-[#ef4444] rounded-xs shrink-0 inline-block shadow-sm"></span>
-          <span className={`text-sm sm:text-lg font-black font-['Prompt','Sarabun',sans-serif] ${
-            isDark ? 'text-rose-300' : 'text-rose-800'
-          }`}>{pendingText}</span>
+        <div className={`flex items-center gap-2 px-3 py-1 rounded-lg border text-xs font-bold ${
+          isDark ? 'bg-black/25 border-slate-700/50 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-800'
+        }`}>
+          <span className="w-3 h-3 bg-[#ef4444] rounded-xs shrink-0 inline-block"></span>
+          <span className="font-['Prompt','Sarabun',sans-serif]">{pendingText}</span>
         </div>
       </div>
     );
@@ -1548,6 +1532,133 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
     );
   };
 
+  // Export active period summary to CSV
+  const handleExportCsv = () => {
+    const activePeriod = activeSection === 'DAILY' ? 'DAILY' : activeSection === 'MONTHLY' ? 'MONTHLY' : 'TOTAL';
+    const data = activePeriod === 'DAILY' ? dailyData : activePeriod === 'MONTHLY' ? monthlyData : totalData;
+    const rows: string[][] = [
+      ['ลำดับ', 'เลขทะเบียนรับ', 'เลขที่เอกสาร', 'เลขที่ อว', 'หน่วยงาน', 'ผู้ส่ง', 'ประเภทเอกสาร', 'วันที่รับ', 'ผู้ให้บริการ', 'สถานะ'],
+      ...(data.items || []).map((item, idx) => [
+        String(idx + 1),
+        item.receiveNo || '-',
+        item.docNo || '-',
+        item.docRef || '-',
+        item.agency || '-',
+        item.sender || '-',
+        item.docType || '-',
+        item.dateReceive || item.dateSent || '-',
+        getItemProvider(item) || '-',
+        isItemCompleted(item) ? 'ดำเนินการแล้วเสร็จ' : 'อยู่ระหว่างดำเนินการ',
+      ]),
+    ];
+
+    const csvContent =
+      '\uFEFF' +
+      rows
+        .map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute(
+      'download',
+      `MFU_Monitor_${currentDept}_${activePeriod}_${new Date().toISOString().slice(0, 10)}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Cross-department pipeline metrics for executive overview strip
+  const pipelineSummary = useMemo(() => {
+    const depts: { id: DepartmentType; label: string; color: string; bg: string; border: string }[] = [
+      {
+        id: 'งานตรวจจ่าย',
+        label: '1. งานตรวจจ่าย',
+        color: isDark ? 'text-sky-300' : 'text-sky-700',
+        bg: isDark ? 'bg-sky-950/50' : 'bg-sky-50/90',
+        border: isDark ? 'border-sky-800/70' : 'border-sky-200',
+      },
+      {
+        id: 'งานสอบทาน',
+        label: '2. งานสอบทาน',
+        color: isDark ? 'text-pink-300' : 'text-pink-700',
+        bg: isDark ? 'bg-pink-950/50' : 'bg-pink-50/90',
+        border: isDark ? 'border-pink-800/70' : 'border-pink-200',
+      },
+      {
+        id: 'งานการเงิน',
+        label: '3. งานการเงิน',
+        color: isDark ? 'text-emerald-300' : 'text-emerald-700',
+        bg: isDark ? 'bg-emerald-950/50' : 'bg-emerald-50/90',
+        border: isDark ? 'border-emerald-800/70' : 'border-emerald-200',
+      },
+      {
+        id: 'งานงบประมาณ',
+        label: '4. งานงบประมาณ',
+        color: isDark ? 'text-amber-300' : 'text-amber-700',
+        bg: isDark ? 'bg-amber-950/50' : 'bg-amber-50/90',
+        border: isDark ? 'border-amber-800/70' : 'border-amber-200',
+      },
+    ];
+
+    return depts.map((d) => {
+      let total = 0;
+      let done = 0;
+      documents.forEach((doc) => {
+        if (d.id === 'งานตรวจจ่าย') {
+          if (doc.department === 'งานตรวจจ่าย' && !isReviewProviderFinal(doc.providerFinal) && isInspectionDocType(doc.docType)) {
+            total++;
+            if (
+              Boolean(
+                doc.actionDate?.trim() ||
+                doc.action?.trim() ||
+                doc.status?.trim() ||
+                doc.qa?.trim()
+              )
+            ) {
+              done++;
+            }
+          }
+        } else if (d.id === 'งานสอบทาน') {
+          if (isDocInReview(doc)) {
+            total++;
+            if (Boolean(doc.reviewStatus?.trim() && doc.reviewStatus.trim() !== '-')) {
+              done++;
+            }
+          }
+        } else if (d.id === 'งานการเงิน') {
+          if (isDocInFinance(doc)) {
+            total++;
+            if (Boolean(doc.disbursementDate?.trim())) {
+              done++;
+            }
+          }
+        } else if (d.id === 'งานงบประมาณ') {
+          const hasBudget = Boolean(
+            doc.budgetReceiveDate?.trim() ||
+            doc.budgetActionDate?.trim() ||
+            doc.budgetStatus?.trim() ||
+            doc.budgetFR?.trim() ||
+            doc.budgetFC?.trim() ||
+            doc.budgetPR?.trim()
+          );
+          if (hasBudget) {
+            total++;
+            if (Boolean(doc.budgetActionDate?.trim() || doc.budgetStatus?.trim())) {
+              done++;
+            }
+          }
+        }
+      });
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      return { ...d, total, done, pending: Math.max(0, total - done), pct };
+    });
+  }, [documents, isDark]);
+
   // Render full balanced layout for 1. รายวัน, 2. รายเดือน, 3. สะสมรวม
   const renderComprehensiveLayout = (period: 'DAILY' | 'MONTHLY' | 'TOTAL') => {
     const thaiMonthNames = [
@@ -1569,10 +1680,10 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
     const data = period === 'DAILY' ? dailyData : period === 'MONTHLY' ? monthlyData : totalData;
     const title =
       period === 'DAILY'
-        ? 'ข้อมูล-รายวัน'
+        ? 'รายงานสรุปผลการดำเนินงาน - รายวัน'
         : period === 'MONTHLY'
-        ? 'ข้อมูลสะสม-รายเดือน'
-        : 'ข้อมูลสะสม-รวมทั้งหมด';
+        ? 'รายงานสรุปผลการดำเนินงานสะสม - รายเดือน'
+        : 'รายงานสรุปผลการดำเนินงานสะสม - รวมทั้งหมด';
 
     const subtitle =
       period === 'DAILY'
@@ -1583,108 +1694,290 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
 
     const periodKey = period === 'DAILY' ? 'วันนี้' : period === 'MONTHLY' ? 'เดือนนี้' : 'ทั้งหมด';
 
+    // Compute Executive Insights for this period (SLA <= 3 working days, Revision rate, Top 5 Agencies)
+    const periodItems = data.items || [];
+    let slaFastCount = 0;
+    let slaOverdueCount = 0;
+    let totalDaysSum = 0;
+    let daysCounted = 0;
+    let revisionCount = 0;
+    const agencyMap = new Map<string, { total: number; completed: number }>();
+
+    periodItems.forEach((doc) => {
+      const start =
+        currentDept === 'งานสอบทาน'
+          ? doc.reviewReceiveDate || doc.actionDate || doc.dateReceive
+          : currentDept === 'งานการเงิน'
+          ? doc.financeReceiveDate || doc.reviewActionDate || doc.dateReceive
+          : currentDept === 'งานงบประมาณ'
+          ? doc.budgetReceiveDate || doc.dateReceive
+          : doc.dateReceive;
+      const end =
+        currentDept === 'งานสอบทาน'
+          ? doc.reviewActionDate
+          : currentDept === 'งานการเงิน'
+          ? doc.disbursementDate || doc.financeActionDate
+          : currentDept === 'งานงบประมาณ'
+          ? doc.budgetActionDate
+          : doc.dateReturn || doc.actionDate;
+
+      const wDays = calculateWorkingDays(start, end);
+      if (wDays !== null) {
+        totalDaysSum += wDays;
+        daysCounted++;
+        if (wDays <= 3) slaFastCount++;
+        else slaOverdueCount++;
+      } else {
+        slaFastCount++;
+      }
+
+      const st = `${doc.status || ''} ${doc.reviewStatus || ''} ${doc.editGroup || ''} ${doc.reviewEditType || ''}`;
+      if (st.includes('แก้ไข') || st.includes('ไม่ผ่าน') || st.includes('ERROR')) {
+        revisionCount++;
+      }
+
+      const ag = (doc.agency || 'ไม่ระบุหน่วยงาน').trim();
+      if (!agencyMap.has(ag)) {
+        agencyMap.set(ag, { total: 0, completed: 0 });
+      }
+      const agStat = agencyMap.get(ag)!;
+      agStat.total++;
+      if (isItemCompleted(doc)) agStat.completed++;
+    });
+
+    const slaRate = periodItems.length > 0 ? Math.round((slaFastCount / periodItems.length) * 100) : 100;
+    const avgWorkingDays = daysCounted > 0 ? (totalDaysSum / daysCounted).toFixed(1) : '1.0';
+    const firstPassCount = Math.max(0, periodItems.length - revisionCount);
+    const firstPassRate = periodItems.length > 0 ? Math.round((firstPassCount / periodItems.length) * 100) : 100;
+    const topAgencies = Array.from(agencyMap.entries())
+      .map(([name, st]) => ({ name, ...st }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+
     const headerThemeClass = isDark
       ? period === 'DAILY'
-        ? 'bg-gradient-to-r from-[#630c17] via-[#851421] to-[#500810] border-rose-900/60 text-white'
+        ? 'bg-gradient-to-r from-[#5a0d18] via-[#7c1322] to-[#420810] border-rose-800/60 text-white'
         : period === 'MONTHLY'
-        ? 'bg-gradient-to-r from-[#0d224d] via-[#163673] to-[#0a1a3b] border-blue-900/60 text-white'
-        : 'bg-gradient-to-r from-[#22164a] via-[#33206c] to-[#180f36] border-purple-900/60 text-white'
+        ? 'bg-gradient-to-r from-[#0d224d] via-[#163673] to-[#0a1a3b] border-sky-800/60 text-white'
+        : 'bg-gradient-to-r from-[#22164a] via-[#33206c] to-[#180f36] border-indigo-800/60 text-white'
       : period === 'DAILY'
-      ? 'bg-gradient-to-r from-[#80121d] via-[#a31a28] to-[#80121d] border-red-200 text-white shadow-md'
+      ? 'bg-gradient-to-r from-[#7f1d1d] via-[#991b1b] to-[#7f1d1d] border-red-200 text-white shadow-sm'
       : period === 'MONTHLY'
-      ? 'bg-gradient-to-r from-[#1e40af] via-[#2563eb] to-[#1e40af] border-blue-200 text-white shadow-md'
-      : 'bg-gradient-to-r from-[#4338ca] via-[#6366f1] to-[#4338ca] border-indigo-200 text-white shadow-md';
+      ? 'bg-gradient-to-r from-[#1e3a8a] via-[#1d4ed8] to-[#1e3a8a] border-blue-200 text-white shadow-sm'
+      : 'bg-gradient-to-r from-[#312e81] via-[#4338ca] to-[#312e81] border-indigo-200 text-white shadow-sm';
 
     const containerCardClass = isDark
-      ? 'bg-[#0d1630]/95 border border-slate-800/90 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-5 text-white'
-      : 'bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-md space-y-5 text-slate-800';
+      ? 'bg-[#0d1630]/95 border border-slate-800/90 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4 text-white'
+      : 'bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4 text-slate-800';
 
     const innerCardClass = isDark
-      ? 'bg-[#080e22] border border-slate-800/80 rounded-xl p-4 sm:p-5 shadow-inner'
-      : 'bg-slate-50 border border-slate-200 rounded-xl p-4 sm:p-5 shadow-xs';
+      ? 'bg-[#080e22] border border-slate-800/80 rounded-xl p-3.5 sm:p-4 shadow-inner'
+      : 'bg-slate-50/70 border border-slate-200/90 rounded-xl p-3.5 sm:p-4 shadow-2xs';
 
-    const innerHeaderClass = `text-lg sm:text-2xl md:text-3xl font-black font-['Prompt','Sarabun',sans-serif] ${
+    const innerHeaderClass = `text-sm sm:text-base font-bold font-['Prompt','Sarabun',sans-serif] ${
       isDark ? 'text-white' : 'text-slate-900'
     }`;
 
     return (
       <div className={containerCardClass}>
-        {/* 1. HEADER (เข้ากับธีมทั้งสว่างและมืด - ขยายขนาด 3 เท่า ชัดเจน คมชัด) */}
+        {/* 1. HEADER (ขนาดกระชับ สมดุลระดับผู้บริหาร) */}
         <div
-          className={`${headerThemeClass} rounded-2xl px-5 sm:px-8 py-5 sm:py-6 border shadow-xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4`}
+          className={`${headerThemeClass} rounded-xl px-4 sm:px-5 py-3 sm:py-3.5 border flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3`}
         >
-          <div className="flex items-center gap-4 sm:gap-5">
-            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/15 backdrop-blur-xs flex items-center justify-center text-3xl sm:text-4xl shadow-inner shrink-0 border border-white/20">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-white/15 backdrop-blur-xs flex items-center justify-center text-xl sm:text-2xl shadow-inner shrink-0 border border-white/20">
               {period === 'DAILY' ? '📅' : period === 'MONTHLY' ? '🗓️' : '📈'}
             </div>
             <div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-2xl sm:text-4xl md:text-5xl font-black font-['Prompt','Sarabun',sans-serif] tracking-wide text-white">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h2 className="text-base sm:text-lg md:text-xl font-bold font-['Prompt','Sarabun',sans-serif] tracking-wide text-white">
                   {title}
                 </h2>
-                <span className="px-3.5 py-1 rounded-full text-sm sm:text-base font-black bg-amber-400 text-black shadow-md">
-                  {currentDept}
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-400 text-slate-950 shadow-xs">
+                  {currentDept === 'ALL' ? 'ทุกฝ่ายงาน' : currentDept}
                 </span>
               </div>
-              <p className="text-sm sm:text-lg md:text-xl text-amber-100 font-bold mt-1 font-['Prompt','Sarabun',sans-serif]">
+              <p className="text-xs sm:text-sm text-amber-100/90 font-medium mt-0.5 font-['Prompt','Sarabun',sans-serif]">
                 {subtitle}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-4 sm:gap-6 bg-black/40 backdrop-blur-md px-5 sm:px-6 py-3 sm:py-3.5 rounded-2xl border border-white/20 text-sm sm:text-lg text-slate-200 font-mono self-stretch lg:self-auto justify-around shadow-inner">
+          <div className="flex items-center gap-3 sm:gap-4 bg-black/35 backdrop-blur-md px-3.5 sm:px-4 py-2 rounded-xl border border-white/15 text-xs sm:text-sm text-slate-200 font-mono self-stretch lg:self-auto justify-around">
             <div>
               รับรวม:{' '}
-              <strong className="text-amber-300 font-black text-xl sm:text-3xl">
+              <strong className="text-amber-300 font-bold text-sm sm:text-base">
                 {data.totalReceived.toLocaleString()}
               </strong>{' '}
               ฉบับ
             </div>
-            <span className="text-slate-500 font-bold">•</span>
+            <span className="text-slate-400">•</span>
             <div>
               แล้วเสร็จ:{' '}
-              <strong className="text-emerald-400 font-black text-xl sm:text-3xl">
+              <strong className="text-emerald-400 font-bold text-sm sm:text-base">
                 {data.completed.toLocaleString()}
               </strong>
             </div>
-            <span className="text-slate-500 font-bold">•</span>
+            <span className="text-slate-400">•</span>
             <div>
               ระหว่างทำ:{' '}
-              <strong className="text-rose-400 font-black text-xl sm:text-3xl">
+              <strong className="text-rose-400 font-bold text-sm sm:text-base">
                 {data.pending.toLocaleString()}
               </strong>
             </div>
           </div>
         </div>
 
-        {/* 2. บล็อคแสดงปริมาณ งานรับ ทำเสร็จ ระหว่างทำ (ตัวเลขและตัวอักษรใหญ่ คมชัด สวยงาม) */}
-        <div className="space-y-3">
+        {/* 2. บล็อคแสดงปริมาณ งานรับ ทำเสร็จ ระหว่างทำ */}
+        <div className="space-y-2">
           {renderLookerKpis(data, period, periodKey)}
           {renderLookerLegend(
-            `ดำเนินการแล้ว-${periodKey}`,
-            `อยู่ระหว่างดำเนินการ-${periodKey}`
+            `ดำเนินการแล้ว (${periodKey})`,
+            `อยู่ระหว่างดำเนินการ (${periodKey})`
           )}
         </div>
 
-        {/* จัดบาลานซ์ข้อ 3, 4, 5 ให้แน่น ไม่ผอม สวยงาม */}
+        {/* 2.5 EXECUTIVE INSIGHTS STRIP (สิ่งที่เพิ่มให้: มาตรฐานเวลา SLA, อัตราความถูกต้องรอบแรก, Top 5 หน่วยงาน) */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
+          {/* Card A: SLA & Working-Day Aging */}
+          <div
+            onDoubleClick={() =>
+              openDrilldown(
+                `เอกสารที่ใช้เวลาเกิน 3 วันทำการ (${periodKey})`,
+                `ช่วงเวลา: ${periodKey} • เกินมาตรฐาน SLA 3 วันทำการ`,
+                (doc) => {
+                  const w = calculateWorkingDays(doc.dateReceive, doc.dateReturn || doc.actionDate);
+                  return w !== null && w > 3;
+                },
+                period
+              )
+            }
+            className={`${innerCardClass} flex flex-col justify-between cursor-pointer hover:border-sky-500/60 transition-all`}
+            title="ดับเบิ้ลคลิกเพื่อดูรายการเอกสารที่ใช้เวลาเกิน 3 วันทำการ"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold flex items-center gap-1.5 text-sky-500 font-['Prompt','Sarabun',sans-serif]">
+                <Clock className="w-4 h-4" />
+                <span>มาตรฐานเวลาดำเนินการ (SLA ≤ 3 วันทำการ)</span>
+              </span>
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-400 font-bold">
+                เฉลี่ย {avgWorkingDays} วัน
+              </span>
+            </div>
+            <div className="my-2.5 flex items-baseline justify-between">
+              <div>
+                <span className="text-xl sm:text-2xl font-black font-mono text-emerald-500">{slaRate}%</span>
+                <span className="text-xs text-slate-400 ml-1.5">ทันตามเกณฑ์ ({slaFastCount} ฉบับ)</span>
+              </div>
+              <div className="text-right">
+                <span className="text-xs font-bold text-rose-500 font-mono">เกิน 3 วัน: {slaOverdueCount} ฉบับ</span>
+              </div>
+            </div>
+            <div className="w-full h-2 bg-slate-800/40 rounded-full overflow-hidden flex">
+              <div style={{ width: `${slaRate}%` }} className="bg-emerald-500 h-full" />
+              <div style={{ width: `${100 - slaRate}%` }} className="bg-rose-500 h-full" />
+            </div>
+          </div>
+
+          {/* Card B: Quality & First-Time Pass Rate */}
+          <div
+            onDoubleClick={() =>
+              openDrilldown(
+                `รายการเอกสารที่ติดสถานะแก้ไข/ตีกลับ (${periodKey})`,
+                `ช่วงเวลา: ${periodKey} • เอกสารที่มีการแจ้งแก้ไข`,
+                (doc) => {
+                  const st = `${doc.status || ''} ${doc.reviewStatus || ''} ${doc.editGroup || ''} ${doc.reviewEditType || ''}`;
+                  return st.includes('แก้ไข') || st.includes('ไม่ผ่าน') || st.includes('ERROR');
+                },
+                period
+              )
+            }
+            className={`${innerCardClass} flex flex-col justify-between cursor-pointer hover:border-emerald-500/60 transition-all`}
+            title="ดับเบิ้ลคลิกเพื่อดูรายการเอกสารที่ติดสถานะแก้ไข"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold flex items-center gap-1.5 text-emerald-500 font-['Prompt','Sarabun',sans-serif]">
+                <ShieldCheck className="w-4 h-4" />
+                <span>ดัชนีคุณภาพเอกสาร (First-Time Pass)</span>
+              </span>
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-bold">
+                คุณภาพการตรวจ
+              </span>
+            </div>
+            <div className="my-2.5 flex items-baseline justify-between">
+              <div>
+                <span className="text-xl sm:text-2xl font-black font-mono text-sky-400">{firstPassRate}%</span>
+                <span className="text-xs text-slate-400 ml-1.5">ปกติ/ถูกต้อง ({firstPassCount} ฉบับ)</span>
+              </div>
+              <div className="text-right">
+                <span className="text-xs font-bold text-amber-500 font-mono">ส่งแก้ไข: {revisionCount} ฉบับ</span>
+              </div>
+            </div>
+            <div className="w-full h-2 bg-slate-800/40 rounded-full overflow-hidden flex">
+              <div style={{ width: `${firstPassRate}%` }} className="bg-sky-500 h-full" />
+              <div style={{ width: `${100 - firstPassRate}%` }} className="bg-amber-500 h-full" />
+            </div>
+          </div>
+
+          {/* Card C: Top Submitting Agencies */}
+          <div className={`${innerCardClass} flex flex-col justify-between`}>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-bold flex items-center gap-1.5 text-amber-500 font-['Prompt','Sarabun',sans-serif]">
+                <Building2 className="w-4 h-4" />
+                <span>หน่วยงานที่ส่งเอกสารสูงสุด ({periodKey})</span>
+              </span>
+              <span className="text-[11px] text-slate-400 font-mono">Top {topAgencies.length}</span>
+            </div>
+            {topAgencies.length > 0 ? (
+              <div className="space-y-1">
+                {topAgencies.slice(0, 3).map((ag, i) => (
+                  <div
+                    key={ag.name}
+                    onDoubleClick={() =>
+                      openDrilldown(
+                        `หน่วยงาน: ${ag.name}`,
+                        `ช่วงเวลา: ${periodKey} • หน่วยงาน: ${ag.name}`,
+                        (d) => (d.agency || '').trim() === ag.name,
+                        period
+                      )
+                    }
+                    className="flex items-center justify-between text-xs py-0.5 px-1.5 rounded hover:bg-slate-500/10 cursor-pointer"
+                    title="ดับเบิ้ลคลิกเพื่อดูเอกสารของหน่วยงานนี้"
+                  >
+                    <span className="truncate max-w-[180px] font-medium">
+                      <strong className="text-amber-500 font-mono mr-1">{i + 1}.</strong>
+                      {ag.name}
+                    </span>
+                    <span className="font-mono font-bold text-[11px] shrink-0">
+                      {ag.total} ฉบับ <span className="text-emerald-500">({ag.completed} เสร็จ)</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-slate-400 py-3 text-center">ไม่มีข้อมูลหน่วยงานในช่วงเวลานี้</div>
+            )}
+          </div>
+        </div>
+
         {/* Row of Charts: 3. กราฟแท่งตามประเภทเอกสาร & 4. กราฟแท่งตามผู้ให้บริการ */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-          {/* 3. แสดงเป็น กราฟแท่ง แสดงตามประเภทเอกสาร (แสดง รับ, ระหว่างทำ, แล้วเสร็จ - ตัวอักษรใหญ่ คมชัด ไม่มีเคอร์เซอร์บัง) */}
-          <div className={`xl:col-span-6 ${innerCardClass} flex flex-col justify-between space-y-4`}>
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+          {/* 3. แสดงเป็น กราฟแท่ง แสดงตามประเภทเอกสาร */}
+          <div className={`xl:col-span-6 ${innerCardClass} flex flex-col justify-between space-y-3`}>
             <div>
-              <div className="flex items-center justify-between border-b pb-3 mb-4 border-slate-700/50">
-                <div className="flex items-center gap-2.5">
-                  <span className="p-1.5 rounded-xl bg-sky-500/20 text-sky-400 text-xl sm:text-2xl">📑</span>
+              <div className="flex items-center justify-between border-b pb-2.5 mb-3 border-slate-700/30">
+                <div className="flex items-center gap-2">
+                  <span className="p-1 rounded-lg bg-sky-500/20 text-sky-400 text-sm">📑</span>
                   <h3 className={innerHeaderClass}>
-                    3. กราฟแท่งแสดงตามประเภทเอกสาร ({data.docTypeList.length} ประเภท)
+                    3. แยกตามประเภทเอกสาร ({data.docTypeList.length} ประเภท)
                   </h3>
                 </div>
-                <span className="text-sm sm:text-base text-sky-400 font-mono font-black bg-sky-950/60 px-3 py-1 rounded-lg border border-sky-800/40">
+                <span className="text-xs text-sky-400 font-mono font-bold bg-sky-950/60 px-2.5 py-0.5 rounded-md border border-sky-800/40">
                   {periodKey}
                 </span>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {data.docTypeList.map((t, idx) => {
                   const total = t.received || (t.completed + t.pending) || 1;
                   const donePct = t.received > 0 ? Math.round((t.completed / total) * 100) : 0;
@@ -1704,79 +1997,78 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
                           period
                         )
                       }
-                      className={`p-3 sm:p-4 rounded-2xl border transition-all cursor-pointer select-none group ${
+                      className={`p-2.5 rounded-xl border transition-all cursor-pointer select-none group ${
                         isDark
-                          ? 'bg-black/30 border-slate-800 hover:bg-black/45 hover:border-slate-700'
-                          : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300 shadow-xs'
+                          ? 'bg-black/25 border-slate-800 hover:bg-black/40 hover:border-slate-700'
+                          : 'bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300 shadow-2xs'
                       }`}
                       title={`ดับเบิ้ลคลิกเพื่อดูรายละเอียดเอกสารประเภท: ${t.type}`}
                     >
-                      {/* Name & Exact Metrics for รับ, ระหว่างทำ, แล้วเสร็จ - ขนาดใหญ่ขึ้น 3 เท่า */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm sm:text-base mb-2">
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs mb-1.5">
                         <span
-                          className={`font-black text-base sm:text-xl leading-tight group-hover:text-amber-300 ${
-                            isDark ? 'text-slate-100' : 'text-slate-900'
+                          className={`font-bold text-xs sm:text-sm leading-tight group-hover:text-amber-400 ${
+                            isDark ? 'text-slate-100' : 'text-slate-800'
                           }`}
                           title={t.type}
                         >
                           {idx + 1}. {t.type}
                         </span>
-                        <div className="flex items-center gap-2 text-xs sm:text-base font-mono flex-wrap">
+                        <div className="flex items-center gap-1.5 text-[11px] font-mono flex-wrap">
                           <span
-                            className={`font-black px-2.5 sm:px-3 py-1 rounded-lg border ${
+                            className={`font-bold px-2 py-0.5 rounded-md border ${
                               isDark
-                                ? 'bg-amber-950/70 text-amber-300 border-amber-700/50'
-                                : 'bg-amber-100 text-amber-900 border-amber-300'
+                                ? 'bg-amber-950/60 text-amber-300 border-amber-700/40'
+                                : 'bg-amber-50 text-amber-900 border-amber-200'
                             }`}
                           >
                             รับ {t.received}
                           </span>
                           <span
-                            className={`font-black px-2.5 sm:px-3 py-1 rounded-lg border ${
+                            className={`font-bold px-2 py-0.5 rounded-md border ${
                               isDark
-                                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/50'
-                                : 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/40'
+                                : 'bg-emerald-50 text-emerald-900 border-emerald-200'
                             }`}
                           >
                             เสร็จ {t.completed}
                           </span>
                           <span
-                            className={`font-black px-2.5 sm:px-3 py-1 rounded-lg border ${
+                            className={`font-bold px-2 py-0.5 rounded-md border ${
                               isDark
-                                ? 'bg-rose-950/70 text-rose-300 border-rose-700/50'
-                                : 'bg-rose-100 text-rose-900 border-rose-300'
+                                ? 'bg-rose-950/60 text-rose-300 border-rose-700/40'
+                                : 'bg-rose-50 text-rose-900 border-rose-200'
                             }`}
                           >
-                            ระหว่างทำ {t.pending}
+                            ค้าง {t.pending}
                           </span>
-                          <span className="font-black text-sky-400 min-w-[50px] text-right text-base sm:text-xl">
+                          <span className="font-bold text-sky-400 min-w-[36px] text-right text-xs">
                             {t.received > 0 ? `${donePct}%` : '-'}
                           </span>
                         </div>
                       </div>
 
-                      {/* Stacked Progress Bar (หนาขึ้น ใหญ่ขึ้น แสดงตัวเลขชัดเจน) */}
-                      <div className="w-full h-8 sm:h-9 bg-slate-950 rounded-xl overflow-hidden flex items-center shadow-inner border border-slate-800/80">
+                      {/* Stacked Progress Bar */}
+                      <div className="w-full h-5 bg-slate-950/90 rounded-lg overflow-hidden flex items-center shadow-inner border border-slate-800/60">
                         {t.completed > 0 && (
                           <div
                             style={{ width: `${donePct}%` }}
-                            className="h-full bg-gradient-to-r from-emerald-600 to-[#22c55e] text-xs sm:text-sm text-white font-black flex items-center justify-center transition-all duration-300 shadow-md px-1"
+                            className="h-full bg-gradient-to-r from-emerald-600 to-[#22c55e] text-[10px] text-white font-bold flex items-center justify-center transition-all duration-300 px-1"
                             title={`แล้วเสร็จ: ${t.completed} (${donePct}%)`}
                           >
-                            {donePct >= 10 ? `${t.completed} (${donePct}%)` : t.completed}
+                            {donePct >= 12 ? `${t.completed} (${donePct}%)` : t.completed}
                           </div>
                         )}
                         {t.pending > 0 && (
                           <div
                             style={{ width: `${pendPct}%` }}
-                            className="h-full bg-gradient-to-r from-rose-600 to-[#ef4444] text-xs sm:text-sm text-white font-black flex items-center justify-center transition-all duration-300 shadow-md px-1"
+                            className="h-full bg-gradient-to-r from-rose-600 to-[#ef4444] text-[10px] text-white font-bold flex items-center justify-center transition-all duration-300 px-1"
                             title={`ระหว่างทำ: ${t.pending} (${pendPct}%)`}
                           >
-                            {pendPct >= 10 ? `${t.pending} (${pendPct}%)` : t.pending}
+                            {pendPct >= 12 ? `${t.pending} (${pendPct}%)` : t.pending}
                           </div>
                         )}
                         {t.received === 0 && (
-                          <div className="w-full text-center text-xs sm:text-sm text-slate-500 font-mono font-bold">
+                          <div className="w-full text-center text-[10px] text-slate-500 font-mono">
                             ไม่มีรายการเอกสาร
                           </div>
                         )}
@@ -1788,7 +2080,7 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
             </div>
 
             {/* 0% to 100% scale */}
-            <div className="flex justify-between text-xs sm:text-base text-slate-400 font-mono font-black px-3 pt-2 border-t border-slate-700/50">
+            <div className="flex justify-between text-[11px] text-slate-400 font-mono font-semibold px-2 pt-2 border-t border-slate-700/30">
               <span>0%</span>
               <span>20%</span>
               <span>40%</span>
@@ -1798,23 +2090,22 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
             </div>
           </div>
 
-          {/* 4. แสดงเป็น กราฟแท่ง แสดงตามผู้ให้บริการ (10 โต๊ะ) - แสดงเต็ม ไม่ต้องมีเคอร์เซอร์เลื่อนขึ้นเลื่อนลง */}
-          <div className={`xl:col-span-6 ${innerCardClass} flex flex-col justify-between space-y-4`}>
+          {/* 4. แสดงเป็น กราฟแท่ง แสดงตามผู้ให้บริการ */}
+          <div className={`xl:col-span-6 ${innerCardClass} flex flex-col justify-between space-y-3`}>
             <div>
-              <div className="flex items-center justify-between border-b pb-3 mb-4 border-slate-700/50">
-                <div className="flex items-center gap-2.5">
-                  <span className="p-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 text-xl sm:text-2xl">👤</span>
+              <div className="flex items-center justify-between border-b pb-2.5 mb-3 border-slate-700/30">
+                <div className="flex items-center gap-2">
+                  <span className="p-1 rounded-lg bg-emerald-500/20 text-emerald-400 text-sm">👤</span>
                   <h3 className={innerHeaderClass}>
-                    4. กราฟแท่งแสดงตามผู้ให้บริการ (10 โต๊ะ)
+                    4. ผลงานตามผู้ให้บริการ / โต๊ะปฏิบัติงาน
                   </h3>
                 </div>
-                <span className="text-sm sm:text-base text-emerald-400 font-mono font-black bg-emerald-950/60 px-3 py-1 rounded-lg border border-emerald-800/40">
+                <span className="text-xs text-emerald-400 font-mono font-bold bg-emerald-950/60 px-2.5 py-0.5 rounded-md border border-emerald-800/40">
                   {periodKey}
                 </span>
               </div>
 
-              {/* แสดงครบ 10 โต๊ะเต็มที่โดยตรง ไม่ต้องมีเคอร์เซอร์/แถบเลื่อนขึ้นเลื่อนลง */}
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {data.providerList.map((p, idx) => {
                   const total = p.received || 1;
                   const donePct = p.received > 0 ? Math.round((p.completed / total) * 100) : 0;
@@ -1831,80 +2122,79 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
                           period
                         )
                       }
-                      className={`p-3 sm:p-4 rounded-2xl border transition-all cursor-pointer select-none group ${
+                      className={`p-2.5 rounded-xl border transition-all cursor-pointer select-none group ${
                         isDark
-                          ? 'bg-black/30 border-slate-800 hover:bg-black/45 hover:border-slate-700'
-                          : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300 shadow-xs'
+                          ? 'bg-black/25 border-slate-800 hover:bg-black/40 hover:border-slate-700'
+                          : 'bg-white border-slate-200/90 hover:bg-slate-50 hover:border-slate-300 shadow-2xs'
                       }`}
                       title={`ดับเบิ้ลคลิกเพื่อดูรายละเอียดงานของ ${p.name}`}
                     >
-                      {/* Name & Exact Metrics for รับ, ระหว่างทำ, แล้วเสร็จ - ตัวอักษรใหญ่ 3 เท่า */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm sm:text-base mb-2">
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs mb-1.5">
                         <span
-                          className={`font-black text-base sm:text-xl leading-tight group-hover:text-amber-300 ${
-                            isDark ? 'text-slate-100' : 'text-slate-900'
+                          className={`font-bold text-xs sm:text-sm leading-tight group-hover:text-amber-400 ${
+                            isDark ? 'text-slate-100' : 'text-slate-800'
                           }`}
                           title={p.name}
                         >
-                          <span className="text-sky-400 mr-2 font-mono font-bold text-sm sm:text-lg">โต๊ะ {idx + 1}:</span>
+                          <span className="text-sky-400 mr-1.5 font-mono font-bold text-xs">โต๊ะ {idx + 1}:</span>
                           {p.name}
                         </span>
-                        <div className="flex items-center gap-2 text-xs sm:text-base font-mono flex-wrap">
+                        <div className="flex items-center gap-1.5 text-[11px] font-mono flex-wrap">
                           <span
-                            className={`font-black px-2.5 sm:px-3 py-1 rounded-lg border ${
+                            className={`font-bold px-2 py-0.5 rounded-md border ${
                               isDark
-                                ? 'bg-amber-950/70 text-amber-300 border-amber-700/50'
-                                : 'bg-amber-100 text-amber-900 border-amber-300'
+                                ? 'bg-amber-950/60 text-amber-300 border-amber-700/40'
+                                : 'bg-amber-50 text-amber-900 border-amber-200'
                             }`}
                           >
                             รับ {p.received}
                           </span>
                           <span
-                            className={`font-black px-2.5 sm:px-3 py-1 rounded-lg border ${
+                            className={`font-bold px-2 py-0.5 rounded-md border ${
                               isDark
-                                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/50'
-                                : 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/40'
+                                : 'bg-emerald-50 text-emerald-900 border-emerald-200'
                             }`}
                           >
                             เสร็จ {p.completed}
                           </span>
                           <span
-                            className={`font-black px-2.5 sm:px-3 py-1 rounded-lg border ${
+                            className={`font-bold px-2 py-0.5 rounded-md border ${
                               isDark
-                                ? 'bg-rose-950/70 text-rose-300 border-rose-700/50'
-                                : 'bg-rose-100 text-rose-900 border-rose-300'
+                                ? 'bg-rose-950/60 text-rose-300 border-rose-700/40'
+                                : 'bg-rose-50 text-rose-900 border-rose-200'
                             }`}
                           >
-                            ระหว่างทำ {p.pending}
+                            ค้าง {p.pending}
                           </span>
-                          <span className="font-black text-sky-400 min-w-[50px] text-right text-base sm:text-xl">
+                          <span className="font-bold text-sky-400 min-w-[36px] text-right text-xs">
                             {p.received > 0 ? `${donePct}%` : '-'}
                           </span>
                         </div>
                       </div>
 
                       {/* Stacked Progress Bar */}
-                      <div className="w-full h-8 sm:h-9 bg-slate-950 rounded-xl overflow-hidden flex items-center shadow-inner border border-slate-800/80">
+                      <div className="w-full h-5 bg-slate-950/90 rounded-lg overflow-hidden flex items-center shadow-inner border border-slate-800/60">
                         {p.completed > 0 && (
                           <div
                             style={{ width: `${donePct}%` }}
-                            className="h-full bg-gradient-to-r from-emerald-600 to-[#22c55e] text-xs sm:text-sm text-white font-black flex items-center justify-center transition-all duration-300 shadow-md px-1"
+                            className="h-full bg-gradient-to-r from-emerald-600 to-[#22c55e] text-[10px] text-white font-bold flex items-center justify-center transition-all duration-300 px-1"
                             title={`แล้วเสร็จ: ${p.completed} (${donePct}%)`}
                           >
-                            {donePct >= 10 ? `${p.completed} (${donePct}%)` : p.completed}
+                            {donePct >= 12 ? `${p.completed} (${donePct}%)` : p.completed}
                           </div>
                         )}
                         {p.pending > 0 && (
                           <div
                             style={{ width: `${pendPct}%` }}
-                            className="h-full bg-gradient-to-r from-rose-600 to-[#ef4444] text-xs sm:text-sm text-white font-black flex items-center justify-center transition-all duration-300 shadow-md px-1"
+                            className="h-full bg-gradient-to-r from-rose-600 to-[#ef4444] text-[10px] text-white font-bold flex items-center justify-center transition-all duration-300 px-1"
                             title={`ระหว่างทำ: ${p.pending} (${pendPct}%)`}
                           >
-                            {pendPct >= 10 ? `${p.pending} (${pendPct}%)` : p.pending}
+                            {pendPct >= 12 ? `${p.pending} (${pendPct}%)` : p.pending}
                           </div>
                         )}
                         {p.received === 0 && (
-                          <div className="w-full text-center text-xs sm:text-sm text-slate-500 font-mono font-bold">
+                          <div className="w-full text-center text-[10px] text-slate-500 font-mono">
                             ไม่มีรายการรับ
                           </div>
                         )}
@@ -1916,7 +2206,7 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
             </div>
 
             {/* 0% to 100% scale */}
-            <div className="flex justify-between text-xs sm:text-base text-slate-400 font-mono font-black px-3 pt-2 border-t border-slate-700/50">
+            <div className="flex justify-between text-[11px] text-slate-400 font-mono font-semibold px-2 pt-2 border-t border-slate-700/30">
               <span>0%</span>
               <span>20%</span>
               <span>40%</span>
@@ -1926,37 +2216,37 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
             </div>
           </div>
 
-          {/* 5. แสดงเป็น ตาราง แสดงตามผู้ให้บริการ (รับ, ระหว่างทำ, แล้วเสร็จ) - ตัวอักษรใหญ่ คมชัด สวยงาม */}
-          <div className={`xl:col-span-12 ${innerCardClass} space-y-4`}>
-            <div className="flex items-center justify-between border-b pb-3 border-slate-700/50">
-              <div className="flex items-center gap-2.5">
-                <span className="p-1.5 rounded-xl bg-indigo-500/20 text-indigo-400 text-xl sm:text-2xl">📋</span>
+          {/* 5. ตารางสรุปผลงานตามผู้ให้บริการ */}
+          <div className={`xl:col-span-12 ${innerCardClass} space-y-3`}>
+            <div className="flex items-center justify-between border-b pb-2.5 border-slate-700/30">
+              <div className="flex items-center gap-2">
+                <span className="p-1 rounded-lg bg-indigo-500/20 text-indigo-400 text-sm">📋</span>
                 <h3 className={innerHeaderClass}>
-                  5. ตารางแสดงตามผู้ให้บริการ ({periodKey})
+                  5. ตารางสรุปผลการปฏิบัติงานรายบุคคล ({periodKey})
                 </h3>
               </div>
-              <span className="text-sm sm:text-lg text-indigo-300 font-mono font-black bg-indigo-950/60 px-3.5 py-1 rounded-lg border border-indigo-800/40">
+              <span className="text-xs text-indigo-300 font-mono font-bold bg-indigo-950/60 px-3 py-1 rounded-lg border border-indigo-800/40">
                 รวมทั้งหมด {data.totalReceived} ฉบับ
               </span>
             </div>
 
-            <div className="overflow-x-auto rounded-2xl border border-slate-700/70 shadow-lg">
-              <table className="w-full text-sm sm:text-base text-left">
+            <div className="overflow-x-auto rounded-xl border border-slate-700/50 shadow-xs">
+              <table className="w-full text-xs sm:text-sm text-left">
                 <thead
-                  className={`border-b font-['Prompt','Sarabun',sans-serif] ${
+                  className={`border-b font-['Prompt','Sarabun',sans-serif] text-xs ${
                     isDark
                       ? 'bg-[#121c3b] text-slate-100 border-slate-700'
                       : 'bg-slate-100 text-slate-800 border-slate-300'
                   }`}
                 >
                   <tr>
-                    <th className="py-3.5 sm:py-4 px-3 sm:px-4 text-center w-16 font-black text-sky-400 text-base sm:text-lg">ลำดับ</th>
-                    <th className="py-3.5 sm:py-4 px-3 sm:px-4 font-black text-base sm:text-lg">ผู้ให้บริการ / โต๊ะ</th>
-                    <th className="py-3.5 sm:py-4 px-3 sm:px-4 font-black text-center w-28 text-base sm:text-lg">รับเอกสาร</th>
-                    <th className="py-3.5 sm:py-4 px-3 sm:px-4 font-black text-[#4ade80] text-center w-28 text-base sm:text-lg">แล้วเสร็จ</th>
-                    <th className="py-3.5 sm:py-4 px-3 sm:px-4 font-black text-[#f87171] text-center w-28 text-base sm:text-lg">ระหว่างทำ</th>
-                    <th className="py-3.5 sm:py-4 px-3 sm:px-4 font-black text-center w-48 text-base sm:text-lg">สัดส่วนความคืบหน้า</th>
-                    <th className="py-3.5 sm:py-4 px-3 sm:px-4 font-black text-amber-400 text-center w-36 text-base sm:text-lg">ร้อยละความสำเร็จ</th>
+                    <th className="py-2.5 px-3 text-center w-14 font-bold text-sky-400">ลำดับ</th>
+                    <th className="py-2.5 px-3 font-bold">ผู้ให้บริการ / โต๊ะ</th>
+                    <th className="py-2.5 px-3 font-bold text-center w-24">รับเอกสาร</th>
+                    <th className="py-2.5 px-3 font-bold text-emerald-500 text-center w-24">แล้วเสร็จ</th>
+                    <th className="py-2.5 px-3 font-bold text-rose-500 text-center w-24">ระหว่างทำ</th>
+                    <th className="py-2.5 px-3 font-bold text-center w-44">สัดส่วนความคืบหน้า</th>
+                    <th className="py-2.5 px-3 font-bold text-amber-500 text-center w-32">อัตราความสำเร็จ</th>
                   </tr>
                 </thead>
                 <tbody
@@ -1985,62 +2275,62 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
                         }`}
                         title={`ดับเบิ้ลคลิกเพื่อดูรายละเอียดงานของ ${p.name}`}
                       >
-                        <td className="py-3 sm:py-3.5 px-3 sm:px-4 text-center font-mono font-black text-slate-400 text-sm sm:text-lg">
+                        <td className="py-2 px-3 text-center font-mono font-bold text-slate-400">
                           {idx + 1}
                         </td>
-                        <td className="py-3 sm:py-3.5 px-3 sm:px-4 font-bold text-sm sm:text-lg">
-                          <span className="text-sky-400 mr-2 font-mono text-xs sm:text-base font-black">โต๊ะ {idx + 1}</span>
+                        <td className="py-2 px-3 font-bold">
+                          <span className="text-sky-400 mr-2 font-mono text-xs font-bold">โต๊ะ {idx + 1}</span>
                           <span className={isDark ? 'text-white' : 'text-slate-900'}>{p.name}</span>
                         </td>
                         <td
-                          className={`py-3 sm:py-3.5 px-3 sm:px-4 text-center font-mono font-black text-base sm:text-2xl ${
+                          className={`py-2 px-3 text-center font-mono font-bold text-sm ${
                             isDark ? 'text-white' : 'text-slate-900'
                           }`}
                         >
                           {p.received}
                         </td>
-                        <td className="py-3 sm:py-3.5 px-3 sm:px-4 text-center font-mono font-black text-[#4ade80] text-base sm:text-2xl">
+                        <td className="py-2 px-3 text-center font-mono font-bold text-emerald-500 text-sm">
                           {p.completed}
                         </td>
-                        <td className="py-3 sm:py-3.5 px-3 sm:px-4 text-center font-mono font-black text-[#f87171] text-base sm:text-2xl">
+                        <td className="py-2 px-3 text-center font-mono font-bold text-rose-500 text-sm">
                           {p.pending}
                         </td>
-                        <td className="py-3 sm:py-3.5 px-3 sm:px-4 text-center">
-                          <div className="w-full h-5 sm:h-6 bg-slate-900 rounded-lg overflow-hidden flex items-center shadow-inner border border-slate-800/80">
+                        <td className="py-2 px-3 text-center">
+                          <div className="w-full h-4 bg-slate-900 rounded-md overflow-hidden flex items-center shadow-inner border border-slate-800/60">
                             {p.completed > 0 && (
                               <div
                                 style={{ width: `${donePct}%` }}
-                                className="h-full bg-gradient-to-r from-emerald-600 to-[#22c55e] text-[10px] sm:text-xs text-white font-black flex items-center justify-center"
+                                className="h-full bg-gradient-to-r from-emerald-600 to-[#22c55e] text-[10px] text-white font-bold flex items-center justify-center"
                               >
-                                {donePct >= 15 ? `${donePct}%` : ''}
+                                {donePct >= 18 ? `${donePct}%` : ''}
                               </div>
                             )}
                             {p.pending > 0 && (
                               <div
                                 style={{ width: `${pendPct}%` }}
-                                className="h-full bg-gradient-to-r from-rose-600 to-[#ef4444] text-[10px] sm:text-xs text-white font-black flex items-center justify-center"
+                                className="h-full bg-gradient-to-r from-rose-600 to-[#ef4444] text-[10px] text-white font-bold flex items-center justify-center"
                               >
-                                {pendPct >= 15 ? `${pendPct}%` : ''}
+                                {pendPct >= 18 ? `${pendPct}%` : ''}
                               </div>
                             )}
                           </div>
                         </td>
-                        <td className="py-3 sm:py-3.5 px-3 sm:px-4 text-center font-mono font-black">
+                        <td className="py-2 px-3 text-center font-mono font-bold">
                           <span
-                            className={`inline-block px-3.5 py-1 rounded-xl text-sm sm:text-base ${
+                            className={`inline-block px-2.5 py-0.5 rounded-lg text-xs ${
                               p.received === 0
                                 ? 'bg-slate-800/40 text-slate-500'
                                 : donePct >= 80
                                 ? isDark
-                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-600 shadow-xs'
-                                  : 'bg-emerald-100 text-emerald-900 border border-emerald-400 shadow-xs'
+                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-700'
+                                  : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
                                 : donePct >= 50
                                 ? isDark
-                                  ? 'bg-amber-950 text-amber-300 border border-amber-600 shadow-xs'
-                                  : 'bg-amber-100 text-amber-900 border border-amber-400 shadow-xs'
+                                  ? 'bg-amber-950 text-amber-300 border border-amber-700'
+                                  : 'bg-amber-100 text-amber-900 border border-amber-300'
                                 : isDark
-                                ? 'bg-rose-950 text-rose-300 border border-rose-600 shadow-xs'
-                                : 'bg-rose-100 text-rose-900 border border-rose-400 shadow-xs'
+                                ? 'bg-rose-950 text-rose-300 border border-rose-700'
+                                : 'bg-rose-100 text-rose-900 border border-rose-300'
                             }`}
                           >
                             {p.received > 0 ? `${donePct}%` : '-'}
@@ -2050,33 +2340,32 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
                     );
                   })}
                 </tbody>
-                {/* Summary Total Row - ขนาดใหญ่ คมชัด โดดเด่น */}
                 <tfoot
-                  className={`border-t-2 font-['Prompt','Sarabun',sans-serif] ${
-                    isDark ? 'bg-[#101a36] text-white border-slate-600' : 'bg-slate-200 text-slate-900 border-slate-400'
+                  className={`border-t-2 font-['Prompt','Sarabun',sans-serif] text-xs sm:text-sm ${
+                    isDark ? 'bg-[#101a36] text-white border-slate-700' : 'bg-slate-100 text-slate-900 border-slate-300'
                   }`}
                 >
                   <tr>
-                    <td colSpan={2} className="py-4 sm:py-5 px-3 sm:px-4 font-black text-right text-sky-400 text-base sm:text-xl">
-                      รวมทั้งหมด ({data.providerList.length} โต๊ะ):
+                    <td colSpan={2} className="py-2.5 px-3 font-bold text-right text-sky-400">
+                      รวมทั้งหมด ({data.providerList.length} รายการ):
                     </td>
-                    <td className="py-4 sm:py-5 px-3 sm:px-4 text-center font-mono font-black text-amber-400 text-lg sm:text-3xl">
+                    <td className="py-2.5 px-3 text-center font-mono font-black text-amber-400 text-sm sm:text-base">
                       {data.totalReceived}
                     </td>
-                    <td className="py-4 sm:py-5 px-3 sm:px-4 text-center font-mono font-black text-[#4ade80] text-lg sm:text-3xl">
+                    <td className="py-2.5 px-3 text-center font-mono font-black text-emerald-500 text-sm sm:text-base">
                       {data.completed}
                     </td>
-                    <td className="py-4 sm:py-5 px-3 sm:px-4 text-center font-mono font-black text-[#f87171] text-lg sm:text-3xl">
+                    <td className="py-2.5 px-3 text-center font-mono font-black text-rose-500 text-sm sm:text-base">
                       {data.pending}
                     </td>
-                    <td className="py-4 sm:py-5 px-3 sm:px-4 text-center">
-                      <div className="w-full h-6 sm:h-7 bg-slate-900 rounded-lg overflow-hidden flex items-center shadow-inner border border-slate-800/80">
+                    <td className="py-2.5 px-3 text-center">
+                      <div className="w-full h-4 bg-slate-900 rounded-md overflow-hidden flex items-center shadow-inner border border-slate-800/60">
                         {data.completed > 0 && (
                           <div
                             style={{
                               width: `${data.totalReceived > 0 ? Math.round((data.completed / data.totalReceived) * 100) : 0}%`,
                             }}
-                            className="h-full bg-gradient-to-r from-emerald-600 to-[#22c55e] text-xs font-black text-white flex items-center justify-center"
+                            className="h-full bg-gradient-to-r from-emerald-600 to-[#22c55e] text-[10px] font-bold text-white flex items-center justify-center"
                           >
                             {data.totalReceived > 0 ? `${Math.round((data.completed / data.totalReceived) * 100)}%` : ''}
                           </div>
@@ -2086,14 +2375,14 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
                             style={{
                               width: `${data.totalReceived > 0 ? 100 - Math.round((data.completed / data.totalReceived) * 100) : 0}%`,
                             }}
-                            className="h-full bg-gradient-to-r from-rose-600 to-[#ef4444] text-xs font-black text-white flex items-center justify-center"
+                            className="h-full bg-gradient-to-r from-rose-600 to-[#ef4444] text-[10px] font-bold text-white flex items-center justify-center"
                           >
                             {data.totalReceived > 0 ? `${100 - Math.round((data.completed / data.totalReceived) * 100)}%` : ''}
                           </div>
                         )}
                       </div>
                     </td>
-                    <td className="py-4 sm:py-5 px-3 sm:px-4 text-center font-mono font-black text-amber-400 text-base sm:text-2xl">
+                    <td className="py-2.5 px-3 text-center font-mono font-black text-amber-400 text-sm sm:text-base">
                       {data.totalReceived > 0
                         ? `${Math.round((data.completed / data.totalReceived) * 100)}%`
                         : '-'}
@@ -2110,89 +2399,111 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
 
   return (
     <div className={`min-h-screen ${bgClass} font-['Sarabun',sans-serif] transition-colors duration-300`}>
-      {/* Top Banner & Control Header matching user's Looker Studio mockup */}
+      {/* Top Banner & Control Header */}
       <header className={headerBannerClass}>
-        <div className="w-full max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-3.5 sm:py-4">
-          <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
+        <div className="w-full max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-3">
+          <div className="flex flex-col lg:flex-row items-center justify-between gap-3">
             {/* Left Brand: MFU Emblem & Department Title */}
-            <div className="flex items-center gap-3.5 text-center lg:text-left">
-              <div className="h-16 w-12 flex items-center justify-center shrink-0">
+            <div className="flex items-center gap-3 text-center lg:text-left">
+              <div className="h-12 w-10 flex items-center justify-center shrink-0">
                 <img
-                  src="/MFU_logo.png"
+                  src="/mfu_logo.png"
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    if (!target.src.includes('MFU_logo_highres.png')) {
+                      target.src = '/MFU_logo_highres.png';
+                    }
+                  }}
                   alt="มหาวิทยาลัยแม่ฟ้าหลวง"
-                  className="h-16 w-auto object-contain drop-shadow-md brightness-110"
-                  referrerPolicy="no-referrer"
+                  className="h-12 w-auto object-contain drop-shadow-md brightness-110"
                 />
               </div>
               <div>
-                <h1 className="text-lg sm:text-xl font-black text-white leading-tight font-['Prompt','Sarabun',sans-serif] tracking-wide drop-shadow-sm">
-                  {currentDept !== 'ALL' ? currentDept : 'ทุกฝ่ายงาน'} ส่วนการเงินและบัญชี
-                </h1>
-                <p className="text-xs sm:text-sm font-semibold text-sky-200 font-['Prompt','Sarabun',sans-serif] mt-0.5">
-                  มหาวิทยาลัยแม่ฟ้าหลวง
+                <div className="flex items-center gap-2 flex-wrap justify-center lg:justify-start">
+                  <h1 className="text-base sm:text-lg font-bold text-white leading-tight font-['Prompt','Sarabun',sans-serif] tracking-wide">
+                    {currentDept !== 'ALL' ? currentDept : 'ทุกฝ่ายงาน'} • ส่วนการเงินและบัญชี
+                  </h1>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-400/30">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Supabase Realtime
+                  </span>
+                </div>
+                <p className="text-xs text-sky-200 font-medium font-['Prompt','Sarabun',sans-serif] mt-0.5">
+                  มหาวิทยาลัยแม่ฟ้าหลวง (Mae Fah Luang University)
                 </p>
               </div>
             </div>
 
             {/* Center Graphic Title: MONITOR */}
-            <div className="text-center px-4">
-              <div className="text-2xl sm:text-4xl font-black tracking-widest text-white font-['Prompt','Sarabun',sans-serif] drop-shadow-lg">
-                MONITOR
+            <div className="text-center px-3">
+              <div className="text-xl sm:text-2xl font-black tracking-widest text-white font-['Prompt','Sarabun',sans-serif] drop-shadow-sm flex items-center justify-center gap-2">
+                <Activity className="w-5 h-5 text-amber-300" />
+                <span>EXECUTIVE MONITOR</span>
               </div>
-              <div className="text-[10px] sm:text-xs font-semibold text-sky-200 tracking-wider uppercase mt-0.5">
-                DIVISION OF FINANCE AND ACCOUNTING
+              <div className="text-[10px] font-semibold text-sky-200/90 tracking-wider uppercase">
+                DIVISION OF FINANCE AND ACCOUNTING DASHBOARD
               </div>
             </div>
 
-            {/* Right Side: Fiscal Year 2569 & Utility Actions */}
-            <div className="flex items-center gap-3">
+            {/* Right Side: Fiscal Year & Utility Actions */}
+            <div className="flex flex-wrap items-center justify-center gap-2">
               {/* Year Badge */}
-              <div className="text-center bg-white/10 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/20 shadow-inner">
-                <div className="text-xs text-sky-200 font-bold">ปีงบประมาณ</div>
-                <div className="text-lg sm:text-xl font-black text-amber-300 font-mono">
+              <div className="text-center bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/20">
+                <div className="text-[10px] text-sky-200 font-semibold leading-tight">ปีงบประมาณ</div>
+                <div className="text-sm sm:text-base font-black text-amber-300 font-mono leading-tight">
                   {dateMetadata.thaiBuddhistYear}
                 </div>
               </div>
 
+              {/* Export CSV Button */}
+              <button
+                onClick={handleExportCsv}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-xl border border-white/20 transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] no-print shrink-0"
+                title="ดาวน์โหลดข้อมูลสรุปเป็นไฟล์ CSV (เปิดใน Excel ได้ทันที)"
+              >
+                <Download className="w-3.5 h-3.5 text-amber-300" />
+                <span>ส่งออก CSV</span>
+              </button>
+
               {/* Print A4 Report Button */}
               <button
                 onClick={() => window.print()}
-                className="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-700/25 transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] no-print shrink-0"
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] no-print shrink-0"
                 title="พิมพ์รายงานลงกระดาษ A4 (โหมดกระดาษขาว คมชัดเต็มหน้า)"
               >
-                <Printer className="w-4 h-4" />
+                <Printer className="w-3.5 h-3.5" />
                 <span>พิมพ์รายงาน A4</span>
               </button>
 
               {/* Theme Toggle Button */}
               <button
                 onClick={() => onToggleTheme(isDark ? 'light' : 'dark')}
-                className={`p-2.5 rounded-xl border transition-all cursor-pointer no-print ${
+                className={`p-2 rounded-xl border transition-all cursor-pointer no-print ${
                   isDark
-                    ? 'bg-sky-950 text-cyan-300 border-sky-500/40 hover:bg-sky-900 shadow-md'
-                    : 'bg-white text-blue-900 border-white/40 hover:bg-blue-50 shadow-md'
+                    ? 'bg-sky-950 text-cyan-300 border-sky-500/40 hover:bg-sky-900'
+                    : 'bg-white text-blue-900 border-white/40 hover:bg-blue-50'
                 }`}
                 title={isDark ? 'เปลี่ยนเป็นธีมสว่าง (ขาว-น้ำเงิน)' : 'เปลี่ยนเป็นธีมมืด (น้ำเงินกรม-ฟ้าสว่าง)'}
               >
-                {isDark ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-blue-800" />}
+                {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-blue-800" />}
               </button>
 
               {/* Refresh Live Data */}
               <button
                 onClick={onRefresh}
                 disabled={isLoading}
-                className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl border border-white/20 transition-all disabled:opacity-50 cursor-pointer no-print"
-                title="รีเฟรชดึงข้อมูลสดจาก Google Sheet"
+                className="p-2 bg-white/10 hover:bg-white/20 text-white rounded-xl border border-white/20 transition-all disabled:opacity-50 cursor-pointer no-print"
+                title="รีเฟรชดึงข้อมูลสดจากฐานข้อมูล Supabase"
               >
-                <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin text-sky-300' : ''}`} />
+                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-sky-300' : ''}`} />
               </button>
 
               {/* Back to Document Cards View */}
               <button
                 onClick={onBackToCards}
-                className="inline-flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-100 text-blue-900 font-bold text-xs sm:text-sm rounded-xl shadow-lg transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] no-print"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-100 text-blue-900 font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] no-print"
               >
-                <ArrowLeft className="w-4 h-4" />
+                <ArrowLeft className="w-3.5 h-3.5" />
                 <span>กลับหน้ารายการ</span>
               </button>
             </div>
@@ -2201,11 +2512,50 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
       </header>
 
       {/* Control & Navigation Bar */}
-      <div className="w-full max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-3.5 sm:py-4 space-y-3 no-print">
+      <div className="w-full max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-3 space-y-3 no-print">
+        {/* Cross-Department Executive Pipeline Bar (สรุปภาพรวม 4 ฝ่ายงาน) */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+          {pipelineSummary.map((item) => {
+            const isSelected = currentDept === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelectDept(item.id)}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                  item.bg
+                } ${item.border} ${
+                  isSelected ? 'ring-2 ring-blue-500 shadow-sm scale-[1.01]' : 'opacity-90 hover:opacity-100'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`text-xs font-bold font-['Prompt','Sarabun',sans-serif] ${item.color}`}>
+                    {item.label}
+                  </span>
+                  <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-black/10 dark:bg-white/10">
+                    {item.pct}%
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between mt-1.5 text-xs font-mono">
+                  <span>
+                    รับ: <strong>{item.total.toLocaleString()}</strong>
+                  </span>
+                  <span className="text-emerald-500 font-bold">เสร็จ {item.done.toLocaleString()}</span>
+                  <span className="text-rose-500 font-bold">ค้าง {item.pending.toLocaleString()}</span>
+                </div>
+                <div className="w-full h-1.5 bg-slate-300/50 dark:bg-slate-800 rounded-full overflow-hidden mt-1.5 flex">
+                  <div style={{ width: `${item.pct}%` }} className="bg-emerald-500 h-full" />
+                  <div style={{ width: `${100 - item.pct}%` }} className="bg-rose-500 h-full" />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
         {/* Department Switcher & Staff Filter Controls */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Department Selection */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs font-bold text-slate-400 mr-1">เลือกฝ่าย:</span>
             {(['งานตรวจจ่าย', 'งานสอบทาน', 'งานการเงิน', 'งานงบประมาณ', 'ALL'] as const).map((dept) => {
               const isActive = currentDept === dept;
@@ -2217,8 +2567,8 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] ${
                     isActive
                       ? isDark
-                        ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20 ring-2 ring-sky-300'
-                        : 'bg-blue-600 text-white shadow-md shadow-blue-500/20 ring-2 ring-blue-400'
+                        ? 'bg-sky-500 text-white shadow-sm ring-1 ring-sky-300'
+                        : 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-400'
                       : isDark
                       ? 'bg-[#15234d] text-slate-300 hover:bg-[#1f326d] border border-sky-500/20'
                       : 'bg-white text-slate-700 hover:bg-sky-50 border border-slate-200'
@@ -2230,10 +2580,10 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
             })}
           </div>
 
-          {/* Controls: สำหรับคน (Staff Filter) & Single Page Mode */}
-          <div className="flex flex-wrap items-center gap-2.5">
+          {/* Controls: สำหรับคน (Staff Filter) & View Mode Tabs */}
+          <div className="flex flex-wrap items-center gap-2">
             {/* กรองสำหรับคน */}
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-xl border ${
               isDark ? 'bg-[#15234d] border-sky-500/30 text-white' : 'bg-white border-slate-200 text-slate-700'
             } shadow-2xs`}>
               <Users className="w-3.5 h-3.5 text-blue-600 shrink-0" />
@@ -2266,11 +2616,11 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
               )}
             </div>
 
-            {/* Section View Tabs (แสดง 3 เลย์เอาท์: รายวัน, รายเดือน, สะสมรวม) */}
+            {/* Section View Tabs */}
             <div className="flex items-center bg-slate-900/10 p-1 rounded-xl border border-slate-200/20 gap-1 flex-wrap">
               <button
                 onClick={() => setActiveSection('DAILY')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] ${
                   activeSection === 'DAILY'
                     ? isDark
                       ? 'bg-sky-500 text-white shadow-xs'
@@ -2284,7 +2634,7 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
               </button>
               <button
                 onClick={() => setActiveSection('MONTHLY')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] ${
                   activeSection === 'MONTHLY'
                     ? isDark
                       ? 'bg-sky-500 text-white shadow-xs'
@@ -2298,7 +2648,7 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
               </button>
               <button
                 onClick={() => setActiveSection('TOTAL')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] ${
                   activeSection === 'TOTAL'
                     ? isDark
                       ? 'bg-sky-500 text-white shadow-xs'
@@ -2312,7 +2662,7 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
               </button>
               <button
                 onClick={() => setActiveSection('ALL_SECTIONS')}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer font-['Prompt','Sarabun',sans-serif] ${
                   activeSection === 'ALL_SECTIONS'
                     ? isDark
                       ? 'bg-sky-500 text-white shadow-xs'
@@ -2330,13 +2680,13 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({
 
         {/* Highlight notification bar when specific person is filtered */}
         {selectedStaffFilter !== 'ALL' && (
-          <div className={`p-3 rounded-2xl border flex items-center justify-between text-xs font-medium ${
+          <div className={`p-2.5 rounded-xl border flex items-center justify-between text-xs font-medium ${
             isDark ? 'bg-sky-950/80 border-sky-500/40 text-sky-200' : 'bg-sky-50 border-sky-200 text-sky-900'
           }`}>
             <div className="flex items-center gap-2">
               <Users className="w-4 h-4 text-sky-500" />
               <span>
-                กำลังแสดงรายงานผลการปฏิบัติงานสำหรับ: <strong className="font-bold text-sm text-amber-500 font-['Prompt','Sarabun',sans-serif]">{selectedStaffFilter}</strong> (สรุปผลพร้อมกันครบ 3 ด้าน: 1.1 รายวัน / 1.2 รายเดือน / 1.3 ทั้งหมด)
+                กำลังแสดงรายงานผลการปฏิบัติงานสำหรับ: <strong className="font-bold text-amber-500 font-['Prompt','Sarabun',sans-serif]">{selectedStaffFilter}</strong>
               </span>
             </div>
             <button

@@ -212,6 +212,7 @@ export const ReviewRecordModal: React.FC<ReviewRecordModalProps> = ({
 
   // Success toast within modal
   const [modalNotice, setModalNotice] = useState<string | null>(null);
+  const [isConfirmingClear, setIsConfirmingClear] = useState<boolean>(false);
 
   // ป็อปอัปแสดงสถานะระหว่างรอ และสถานะว่าบันทึกข้อมูลแล้ว
   const [savePopup, setSavePopup] = useState<{
@@ -593,7 +594,7 @@ export const ReviewRecordModal: React.FC<ReviewRecordModalProps> = ({
                 <div className="flex items-center gap-1.5 text-slate-700 truncate">
                   <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   <span className="text-slate-500">เลขที่เอกสาร:</span>
-                  <span className="font-bold font-mono text-slate-800 truncate">
+                  <span className="font-normal font-mono text-slate-600 truncate">
                     {selectedDoc.docNo || '-'}
                   </span>
                 </div>
@@ -893,12 +894,70 @@ export const ReviewRecordModal: React.FC<ReviewRecordModalProps> = ({
 
         {/* Modal Footer */}
         <div className="px-5 py-3 bg-slate-100 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2.5 shrink-0">
-          <span className="text-xs text-slate-500">
-            {!isDocumentReceived
-              ? '⚠️ เอกสารนี้ยังไม่ได้กดรับ ต้องบันทึกการรับเอกสาร (พาร์ท 1) ก่อน'
-              : 'ระบบรองรับการแยกบันทึกทีละพาร์ท หรือกดบันทึกทั้งหมดพร้อมกัน'}
-          </span>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          {isConfirmingClear ? (
+            <div className="flex flex-wrap items-center gap-2 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl">
+              <span className="text-xs font-bold text-rose-800">เลือกรูปแบบการล้างค่า:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!selectedDoc) return;
+                  const clearedStatusOnly: DocumentItem = {
+                    ...selectedDoc,
+                    reviewActionDate: '',
+                    reviewStatus: '',
+                    reviewEditType: '',
+                    reviewEditDetail: '',
+                  };
+                  setIsConfirmingClear(false);
+                  onSave(clearedStatusOnly, 'all');
+                }}
+                className="px-2.5 py-1 rounded-lg text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 transition-colors cursor-pointer"
+              >
+                ล้างเฉพาะพาร์ท 2 (ผลตรวจ)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!selectedDoc) return;
+                  const clearedAll: DocumentItem = {
+                    ...selectedDoc,
+                    reviewReceiveDate: '',
+                    reviewProvider: '',
+                    reviewActionDate: '',
+                    reviewStatus: '',
+                    reviewEditType: '',
+                    reviewEditDetail: '',
+                  };
+                  setIsConfirmingClear(false);
+                  onSave(clearedAll, 'all');
+                }}
+                className="px-2.5 py-1 rounded-lg text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition-colors cursor-pointer"
+              >
+                ล้างทั้งหมดเป็นค่าว่าง
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsConfirmingClear(false)}
+                className="px-2 py-1 rounded-lg text-xs font-semibold text-slate-600 hover:bg-white transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsConfirmingClear(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
+                title="ล้างข้อมูลงานสอบทานที่เคยบันทึกไว้ให้กลับเป็นค่าว่างเหมือนเดิม"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>ล้างข้อมูลเป็นค่าว่าง</span>
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             <button
               type="button"
               onClick={onClose}

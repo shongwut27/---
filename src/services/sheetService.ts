@@ -1,12 +1,18 @@
 import { DocumentItem, DepartmentType } from '../types';
-import { INITIAL_DOCUMENTS, INITIAL_SHEET_ID, INITIAL_SHEET_NAME } from '../data/initialData';
-import { getAccessToken, googleSignIn, setCachedAccessToken } from './authService';
+import { INITIAL_DOCUMENTS } from '../data/initialData';
+import {
+  supabase,
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY,
+  SUPABASE_TABLE,
+} from './supabaseClient';
+import { parseThaiDate } from '../utils/workingDays';
 
 const LOCAL_STORAGE_KEY = 'doc_tracking_data_v2';
 const GAS_URL_KEY = 'doc_tracking_gas_url';
 
 export function getStoredGasUrl(): string {
-  return localStorage.getItem(GAS_URL_KEY) || (import.meta as any).env?.VITE_GAS_URL || '';
+  return localStorage.getItem(GAS_URL_KEY) || SUPABASE_URL;
 }
 
 export function setStoredGasUrl(url: string): void {
@@ -21,7 +27,7 @@ export function getLocalDocuments(): DocumentItem[] {
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed.map((item: DocumentItem) => ({
           ...item,
-          department: 'งานตรวจจ่าย' as DepartmentType,
+          department: (item.department || 'งานตรวจจ่าย') as DepartmentType,
         }));
       }
     }
@@ -44,1006 +50,510 @@ export function resetToInitialData(): DocumentItem[] {
   return INITIAL_DOCUMENTS;
 }
 
+function isUuid(str?: string): boolean {
+  if (!str) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
+}
+
+function generateUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function toNullable(val?: string | null): string | null {
+  if (val === undefined || val === null) return null;
+  const trimmed = String(val).trim();
+  return trimmed === '' ? null : trimmed;
+}
+
 /**
- * Fetch live data from Google Sheets (Primary Source of Truth)
+ * Map a row from Supabase table "2570-ระบบติดตามเอกสาร" to DocumentItem
  */
-export async function fetchFromGoogleSheet(sheetId = INITIAL_SHEET_ID, sheetName = INITIAL_SHEET_NAME): Promise<DocumentItem[]> {
-  // If user is authenticated with Google, read directly from Google Sheets REST API v4 for guaranteed instant freshness
-  try {
-    const token = await getAccessToken();
-    if (token) {
-      const apiUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(sheetName)}!A1:AZ?valueRenderOption=FORMATTED_VALUE`;
-      const apiRes = await fetch(apiUrl, {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: 'no-store',
-      });
-      if (apiRes.ok) {
-        const json = await apiRes.json();
-        const allRows: string[][] = json.values || [];
-        const headerCount = 2; // Row 1 (Category Header) and Row 2 (Column Labels), data starts from Row 3
-        const dataRows = allRows.slice(headerCount);
-        const docRounds: Record<string, number> = {};
-        const items: DocumentItem[] = [];
+export function mapSupabaseRowToDocumentItem(
+  row: Record<string, any>,
+  sheetRow: number,
+  currentRound: number
+): DocumentItem {
+  const val = (key: string): string => {
+    const v = row[key];
+    return v !== undefined && v !== null ? String(v).trim() : '';
+  };
 
-        // ตรวจสอบว่ามีคอลัมน์ "อีเมล" (Column F) หรือไม่
-        const hasEmailCol = allRows[1] ? String(allRows[1][5] || '').includes('เมล') : (allRows[0]?.length >= 52 || allRows[1]?.length >= 52 || (allRows[2] && allRows[2].length >= 52));
-        const off = hasEmailCol ? 1 : 0;
+  const receiveNo = val('เลขทะเบียนรับ');
+  const email = val('ที่อยู่อีเมล');
+  const docRef = val('เลขที่ อว/ ชื่อ');
+  const agency = val('หน่วยงาน');
+  const docNo = val('เลขที่เอกสาร');
+  const docType = val('ประเภทเอกสาร');
+  const phone = val('โทรศัพท์') || val('โทร.');
 
-        dataRows.forEach((row, idx) => {
-          const val = (i: number): string => (row && row[i] !== undefined && row[i] !== null ? String(row[i]).trim() : '');
-          const isRowEmpty = !row || row.every((c) => !c || String(c).trim() === '');
-          if (isRowEmpty) return;
+  const pAuto = val('ผู้ให้บริการ');
+  const pChange = val('เปลี่ยนโต๊ะบริการ');
+  const pFinal = val('ผู้ให้บริการ-final') || pChange || pAuto;
 
-          const receiveNo = val(2);
-          const email = off ? val(5) : '';
-          const docRef = val(5 + off);
-          const agency = val(6 + off);
-          const docNo = val(7 + off);
-          const docType = val(8 + off);
+  let sType = val('ประเภทเอกสารย่อย');
+  let qVal = val('QA.');
 
-          // Defensive: Skip any accidental header rows
-          if (receiveNo === 'เลขทะเบียนรับ' || val(1) === 'N/O' || docNo === 'เลขที่เอกสาร') {
-            return;
-          }
-
-          const sheetRow = idx + 3; // Data row starts from Row 3 in Google Sheets
-
-          // Document round identifier: Priority docNo -> receiveNo -> docRef -> rowId
-          const docKey = (docNo && docNo !== '')
-            ? docNo
-            : (receiveNo && receiveNo !== '')
-              ? `REC-${receiveNo}`
-              : (docRef && docRef !== '')
-                ? `REF-${docRef}`
-                : `ROW-${sheetRow}`;
-
-          docRounds[docKey] = (docRounds[docKey] || 0) + 1;
-          const currentRound = docRounds[docKey];
-
-          const pFinal = val(15 + off);
-          const pAuto = val(13 + off);
-          const dType = docType;
-          let sType = val(17 + off);
-          let qVal = val(18 + off);
-
-          const isPrakaymas = pFinal.includes('ประกายมาศ') || pAuto.includes('ประกายมาศ');
-          if (!isPrakaymas && !qVal && sType) {
-            qVal = sType;
-            sType = '';
-          }
-
-          const combined = `${pFinal} ${pAuto} ${dType} ${sType}`.toLowerCase();
-
-          const department: DepartmentType = 'งานตรวจจ่าย';
-
-          items.push({
-            id: `doc-row-${sheetRow}`,
-            rowId: sheetRow,
-            ep: val(0),
-            no: val(1),
-            receiveNo: receiveNo,
-            sender: val(3),
-            phone: val(4),
-            email: email,
-            docRef: docRef,
-            agency: agency,
-            docNo: docNo,
-            docType: docType,
-            dateReceive: val(9 + off),
-            dateDesk: val(10 + off),
-            dateReturn: val(11 + off),
-            returnStatus: val(12 + off),
-            providerAuto: val(13 + off),
-            providerChange: val(14 + off),
-            providerFinal: val(15 + off),
-            note: val(16 + off),
-            subType: sType,
-            qa: qVal,
-            actionDate: val(19 + off),
-            action: val(20 + off),
-            status: val(21 + off),
-            editGroup: val(22 + off),
-            editDetail: val(23 + off),
-            reviewReceiveDate: val(24 + off),
-            reviewProvider: val(25 + off),
-            reviewActionDate: val(26 + off),
-            reviewStatus: val(27 + off),
-            reviewEditType: val(28 + off),
-            reviewEditDetail: val(29 + off),
-            financeReceiveDate: val(30 + off),
-            financePaymentType: val(31 + off),
-            financePreparer: val(32 + off),
-            financeUrgentCheck: val(33 + off),
-            financeActionDate: val(34 + off),
-            financeReviewDate: val(35 + off),
-            disbursementDate: val(36 + off),
-            disbursementPayer: val(37 + off),
-            disbursementNotifyDate: val(38 + off),
-            disbursementActivityStartDate: val(39 + off),
-            disbursementActivityEndDate: val(40 + off),
-            financeIssueDate: val(41 + off),
-            financeIssueDetail: val(42 + off),
-            budgetActionDate: val(43 + off),
-            budgetFR: val(44 + off),
-            budgetFC: val(45 + off),
-            budgetPR: val(46 + off),
-            budgetStatus: val(47 + off),
-            budgetReceiveDate: val(48 + off),
-            budgetCoverDate: val(49 + off),
-            budgetDocSetDate: val(50 + off),
-            department: department,
-            round: currentRound,
-          });
-        });
-
-        return items;
-      } else if (apiRes.status === 401) {
-        setCachedAccessToken(null);
-      }
-    }
-  } catch (apiErr) {
-    console.warn('Google Sheets API v4 fetch fallback to direct fetch:', apiErr);
+  const isPrakaymas = pFinal.includes('ประกายมาศ') || pAuto.includes('ประกายมาศ');
+  if (!isPrakaymas && !qVal && sType) {
+    qVal = sType;
+    sType = '';
   }
 
-  // Primary live fetch: Google Sheets Direct CSV Export (instant, real-time, zero Google CDN cache delay)
+  const department: DepartmentType = 'งานตรวจจ่าย';
+
+  return {
+    id: val('id') || `doc-row-${sheetRow}`,
+    rowId: sheetRow,
+    ep: val('EP.'),
+    no: val('N/O'),
+    receiveNo,
+    sender: val('ผู้ส่งเอกสาร'),
+    phone,
+    email,
+    docRef,
+    agency,
+    docNo,
+    docType,
+    dateReceive: val('วันที่รับ'),
+    dateDesk: val('วันที่ส่ง'),
+    dateReturn: val('วันที่ส่งคืน'),
+    returnStatus: val('สถานะ_ธุรการส่งคืน'),
+    providerAuto: pAuto,
+    providerChange: pChange,
+    providerFinal: pFinal,
+    note: val('หมายเหตุ'),
+    subType: sType,
+    qa: qVal,
+    actionDate: val('วันทำรายการ_ตรวจ'),
+    action: val('การดำเนินการ'),
+    status: val('สถานะ_งานตรวจ'),
+    editGroup: val('Group-กรณีแก้ไข'),
+    editDetail: val('หมายเหตุ_งานตรวจ'),
+    reviewReceiveDate: val('วันที่รับ_สอบทาน'),
+    reviewProvider: val('ผู้ให้บริการ_สอบทาน'),
+    reviewActionDate: val('วันทำรายการ_สอบทาน'),
+    reviewStatus: val('สถานะ_สอบทาน'),
+    reviewEditType: val('ประเภทแก้ไข'),
+    reviewEditDetail: val('หมายเหตุ_สอบทาน'),
+    financeReceiveDate: val('วันที่รับ_การเงิน'),
+    financePaymentType: val('ประเภทการจ่าย'),
+    financePreparer: val('ผู้จัดทำเช็ค/โอนเงิน'),
+    financeUrgentCheck: val('กรณีเช็คด่วน'),
+    financeActionDate: val('วันทำรายการ_การเงิน'),
+    financeReviewDate: val('วันที่สอบทาน_เช็ค'),
+    disbursementDate: val('วันที่_จ่ายเงิน'),
+    disbursementPayer: val('ผู้จ่ายเงิน'),
+    disbursementNotifyDate: val('วันที่แจ้งรับเงิน'),
+    disbursementActivityStartDate: val('วันที่เริ่ม_ยืมทดรอง'),
+    disbursementActivityEndDate: val('วันสิ้นสุดกิจกรรม'),
+    financeIssueDate: val('วันที่_จ่ายไม่ได้'),
+    financeIssueDetail: val('หมายเหตุ_ไม่จ่าย'),
+    budgetActionDate: val('วันทำรายการ_ลงนาม'),
+    budgetFR: val('FR'),
+    budgetFC: val('FC'),
+    budgetPR: val('PR'),
+    budgetStatus: val('สถานะ_งบประมาณ'),
+    budgetReceiveDate: val('วันที่รับ_งบประมาณ'),
+    budgetCoverDate: val('วันที่ตามใบปะหน้า'),
+    budgetDocSetDate: val('วันที่ตามชุดเอกสาร'),
+    department,
+    round: currentRound,
+  };
+}
+
+/**
+ * Fetch live data from Supabase table "2570-ระบบติดตามเอกสาร" (Primary Source of Truth)
+ */
+export async function fetchFromSupabase(tableName = SUPABASE_TABLE): Promise<DocumentItem[]> {
+  let allRows: Record<string, any>[] = [];
+
   try {
-    const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&sheet=${encodeURIComponent(sheetName)}&_t=${Date.now()}`;
-    const csvRes = await fetch(csvUrl, {
+    const pageSize = 1000;
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from(tableName)
+        .select('*')
+        .range(from, from + pageSize - 1);
+
+      if (error) {
+        throw error;
+      }
+      if (!data || data.length === 0) {
+        break;
+      }
+      allRows = allRows.concat(data);
+      if (data.length < pageSize) {
+        break;
+      }
+      from += pageSize;
+    }
+  } catch (sdkErr) {
+    console.warn('Supabase SDK fetch fallback to direct REST API:', sdkErr);
+    const url = `${SUPABASE_URL}/rest/v1/${encodeURIComponent(tableName)}?select=*`;
+    const res = await fetch(url, {
       cache: 'no-store',
       headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
         'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
-        'Pragma': 'no-cache',
       },
     });
-
-    if (csvRes.ok) {
-      const csvText = await csvRes.text();
-      if (csvText && csvText.length > 50) {
-        const rows: string[][] = [];
-        let row: string[] = [];
-        let cur = '';
-        let inQuotes = false;
-
-        for (let i = 0; i < csvText.length; i++) {
-          const ch = csvText[i];
-          if (ch === '"' && inQuotes && csvText[i + 1] === '"') {
-            cur += '"';
-            i++;
-          } else if (ch === '"') {
-            inQuotes = !inQuotes;
-          } else if (ch === ',' && !inQuotes) {
-            row.push(cur.trim());
-            cur = '';
-          } else if ((ch === '\r' || ch === '\n') && !inQuotes) {
-            if (ch === '\r' && csvText[i + 1] === '\n') i++;
-            row.push(cur.trim());
-            rows.push(row);
-            row = [];
-            cur = '';
-          } else {
-            cur += ch;
-          }
-        }
-        if (cur !== '' || row.length > 0) {
-          row.push(cur.trim());
-          rows.push(row);
-        }
-
-        if (rows.length >= 3) {
-          const dataRows = rows.slice(2);
-          const docRounds: Record<string, number> = {};
-          const items: DocumentItem[] = [];
-
-          // ตรวจสอบว่ามีคอลัมน์ "อีเมล" (Column F) หรือไม่
-          const hasEmailCol = rows[1] ? String(rows[1][5] || '').includes('เมล') : (rows[0]?.length >= 52 || rows[1]?.length >= 52 || (rows[2] && rows[2].length >= 52));
-          const off = hasEmailCol ? 1 : 0;
-
-          dataRows.forEach((r, idx) => {
-            const val = (i: number): string => (r && r[i] !== undefined && r[i] !== null ? String(r[i]).trim() : '');
-            const isRowEmpty = !r || r.every((c) => !c || String(c).trim() === '');
-            if (isRowEmpty) return;
-
-            const receiveNo = val(2);
-            const email = off ? val(5) : '';
-            const docRef = val(5 + off);
-            const agency = val(6 + off);
-            const docNo = val(7 + off);
-            const docType = val(8 + off);
-
-            if (receiveNo === 'เลขทะเบียนรับ' || val(1) === 'N/O' || docNo === 'เลขที่เอกสาร') {
-              return;
-            }
-
-            const sheetRow = idx + 3;
-            const docKey = (docNo && docNo !== '')
-              ? docNo
-              : (receiveNo && receiveNo !== '')
-                ? `REC-${receiveNo}`
-                : (docRef && docRef !== '')
-                  ? `REF-${docRef}`
-                  : `ROW-${sheetRow}`;
-
-            docRounds[docKey] = (docRounds[docKey] || 0) + 1;
-            const currentRound = docRounds[docKey];
-
-            const pFinal = val(15 + off);
-            const pAuto = val(13 + off);
-            const dType = docType;
-            let sType = val(17 + off);
-            let qVal = val(18 + off);
-
-            const isPrakaymas = pFinal.includes('ประกายมาศ') || pAuto.includes('ประกายมาศ');
-            if (!isPrakaymas && !qVal && sType) {
-              qVal = sType;
-              sType = '';
-            }
-
-            const department: DepartmentType = 'งานตรวจจ่าย';
-
-            items.push({
-              id: `doc-row-${sheetRow}`,
-              rowId: sheetRow,
-              ep: val(0),
-              no: val(1),
-              receiveNo: receiveNo,
-              sender: val(3),
-              phone: val(4),
-              email: email,
-              docRef: docRef,
-              agency: agency,
-              docNo: docNo,
-              docType: docType,
-              dateReceive: val(9 + off),
-              dateDesk: val(10 + off),
-              dateReturn: val(11 + off),
-              returnStatus: val(12 + off),
-              providerAuto: val(13 + off),
-              providerChange: val(14 + off),
-              providerFinal: val(15 + off),
-              note: val(16 + off),
-              subType: sType,
-              qa: qVal,
-              actionDate: val(19 + off),
-              action: val(20 + off),
-              status: val(21 + off),
-              editGroup: val(22 + off),
-              editDetail: val(23 + off),
-              reviewReceiveDate: val(24 + off),
-              reviewProvider: val(25 + off),
-              reviewActionDate: val(26 + off),
-              reviewStatus: val(27 + off),
-              reviewEditType: val(28 + off),
-              reviewEditDetail: val(29 + off),
-              financeReceiveDate: val(30 + off),
-              financePaymentType: val(31 + off),
-              financePreparer: val(32 + off),
-              financeUrgentCheck: val(33 + off),
-              financeActionDate: val(34 + off),
-              financeReviewDate: val(35 + off),
-              disbursementDate: val(36 + off),
-              disbursementPayer: val(37 + off),
-              disbursementNotifyDate: val(38 + off),
-              disbursementActivityStartDate: val(39 + off),
-              disbursementActivityEndDate: val(40 + off),
-              financeIssueDate: val(41 + off),
-              financeIssueDetail: val(42 + off),
-              budgetActionDate: val(43 + off),
-              budgetFR: val(44 + off),
-              budgetFC: val(45 + off),
-              budgetPR: val(46 + off),
-              budgetStatus: val(47 + off),
-              budgetReceiveDate: val(48 + off),
-              budgetCoverDate: val(49 + off),
-              budgetDocSetDate: val(50 + off),
-              department: department,
-              round: currentRound,
-            });
-          });
-
-          if (items.length > 0) {
-            return items;
-          }
-        }
-      }
+    if (!res.ok) {
+      throw new Error(`Supabase HTTP Error: ${res.status}`);
     }
-  } catch (csvErr) {
-    console.warn('Direct CSV export fetch failed, trying GViz fallback:', csvErr);
+    allRows = await res.json();
   }
 
-  // Fallback: Google Visualization API (public read endpoint with strict anti-cache)
-  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}&t=${Date.now()}`;
-  const response = await fetch(url, {
-    cache: 'no-store',
-    headers: {
-      'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0',
-    },
+  // Sort rows chronologically by วันที่รับ / วันที่ส่ง so round numbers and latestRound are always accurate
+  const indexedRows = allRows.map((r, originalIndex) => {
+    const dStr = r['วันที่รับ'] || r['วันที่ส่ง'] || '';
+    const parsed = parseThaiDate(dStr);
+    return {
+      row: r,
+      originalIndex,
+      timestamp: parsed ? parsed.getTime() : 0,
+    };
   });
-  if (!response.ok) {
-    throw new Error(`Google Sheets HTTP Error: ${response.status}`);
-  }
-  const text = await response.text();
-  const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
-  const json = JSON.parse(jsonStr);
 
-  const rows = json.table.rows || [];
+  indexedRows.sort((a, b) => {
+    if (a.timestamp !== b.timestamp) {
+      return a.timestamp - b.timestamp;
+    }
+    return a.originalIndex - b.originalIndex;
+  });
+
   const docRounds: Record<string, number> = {};
-  const headerCount = (json.table && typeof json.table.parsedNumHeaders === 'number')
-    ? json.table.parsedNumHeaders
-    : (typeof json.parsedNumHeaders === 'number' ? json.parsedNumHeaders : 2);
-
   const items: DocumentItem[] = [];
 
-  // ตรวจสอบว่ามีคอลัมน์ "อีเมล" (Column F) หรือไม่จากโครงสร้าง table cols
-  const cols = json.table?.cols || [];
-  const hasEmailCol = (cols[5] && String(cols[5].label || '').includes('เมล')) || (cols.length >= 52);
-  const off = hasEmailCol ? 1 : 0;
+  indexedRows.forEach(({ row }, idx) => {
+    if (!row) return;
+    const receiveNo = row['เลขทะเบียนรับ'] ? String(row['เลขทะเบียนรับ']).trim() : '';
+    const docRef = row['เลขที่ อว/ ชื่อ'] ? String(row['เลขที่ อว/ ชื่อ']).trim() : '';
+    const docNo = row['เลขที่เอกสาร'] ? String(row['เลขที่เอกสาร']).trim() : '';
 
-  rows.forEach((r: any, idx: number) => {
-    const val = (i: number): string => {
-      const cell = r.c && r.c[i];
-      if (!cell) return '';
-      if (cell.f !== undefined && cell.f !== null) return String(cell.f).trim();
-      if (cell.v !== undefined && cell.v !== null) return String(cell.v).trim();
-      return '';
-    };
-
-    const receiveNo = val(2);
-    const email = off ? val(5) : '';
-    const docRef = val(5 + off);
-    const agency = val(6 + off);
-    const docNo = val(7 + off);
-    const docType = val(8 + off);
-
-    // Skip completely empty rows (if all cells are blank)
-    const isRowEmpty = !r.c || r.c.every((c: any) => !c || (c.v === null && c.v === undefined && c.f === null && c.f === undefined) || (String(c.v ?? c.f ?? '').trim() === ''));
-    if (isRowEmpty) {
+    // Skip accidental header rows if any
+    if (receiveNo === 'เลขทะเบียนรับ' || row['N/O'] === 'N/O' || docNo === 'เลขที่เอกสาร') {
       return;
     }
 
-    // Defensive: Skip any accidental header rows
-    if (receiveNo === 'เลขทะเบียนรับ' || val(1) === 'N/O' || docNo === 'เลขที่เอกสาร') {
-      return;
-    }
+    const sheetRow = idx + 3;
+    const docKey = docNo
+      ? docNo
+      : receiveNo
+        ? `REC-${receiveNo}`
+        : docRef
+          ? `REF-${docRef}`
+          : `ROW-${row.id || sheetRow}`;
 
-    // Since GViz already excludes header rows, idx 0 corresponds to Sheet Row 3
-    const sheetRow = idx + 3; // Data row starts from Row 3 in Google Sheets
-    const docKey = (docNo && docNo.trim() !== '')
-      ? docNo.trim()
-      : (receiveNo && receiveNo.trim() !== '')
-        ? `REC-${receiveNo.trim()}`
-        : (docRef && docRef.trim() !== '')
-          ? `REF-${docRef.trim()}`
-          : `ROW-${sheetRow}`;
     docRounds[docKey] = (docRounds[docKey] || 0) + 1;
     const currentRound = docRounds[docKey];
 
-    const pFinal = val(15 + off);
-    const pAuto = val(13 + off);
-    const dType = docType;
-    let sType = val(17 + off);
-    let qVal = val(18 + off);
-
-    const isPrakaymas = pFinal.includes('ประกายมาศ') || pAuto.includes('ประกายมาศ');
-    if (!isPrakaymas && !qVal && sType) {
-      qVal = sType;
-      sType = '';
-    }
-
-    const department: DepartmentType = 'งานตรวจจ่าย';
-
-    items.push({
-      id: `doc-row-${sheetRow}`,
-      rowId: sheetRow, // Exact row in Google Sheets (Row 3 onwards)
-      ep: val(0),
-      no: val(1),
-      receiveNo: receiveNo,
-      sender: val(3),
-      phone: val(4),
-      email: email,
-      docRef: docRef,
-      agency: agency,
-      docNo: docNo,
-      docType: docType,
-      dateReceive: val(9 + off),
-      dateDesk: val(10 + off),
-      dateReturn: val(11 + off),
-      returnStatus: val(12 + off),
-      providerAuto: val(13 + off),
-      providerChange: val(14 + off),
-      providerFinal: val(15 + off),
-      note: val(16 + off),
-      subType: sType,
-      qa: qVal,
-      actionDate: val(19 + off),
-      action: val(20 + off),
-      status: val(21 + off),
-      editGroup: val(22 + off),
-      editDetail: val(23 + off),
-      reviewReceiveDate: val(24 + off),
-      reviewProvider: val(25 + off),
-      reviewActionDate: val(26 + off),
-      reviewStatus: val(27 + off),
-      reviewEditType: val(28 + off),
-      reviewEditDetail: val(29 + off),
-      financeReceiveDate: val(30 + off),
-      financePaymentType: val(31 + off),
-      financePreparer: val(32 + off),
-      financeUrgentCheck: val(33 + off),
-      financeActionDate: val(34 + off),
-      financeReviewDate: val(35 + off),
-      disbursementDate: val(36 + off),
-      disbursementPayer: val(37 + off),
-      disbursementNotifyDate: val(38 + off),
-      disbursementActivityStartDate: val(39 + off),
-      disbursementActivityEndDate: val(40 + off),
-      financeIssueDate: val(41 + off),
-      financeIssueDetail: val(42 + off),
-      budgetActionDate: val(43 + off),
-      budgetFR: val(44 + off),
-      budgetFC: val(45 + off),
-      budgetPR: val(46 + off),
-      budgetStatus: val(47 + off),
-      budgetReceiveDate: val(48 + off),
-      budgetCoverDate: val(49 + off),
-      budgetDocSetDate: val(50 + off),
-      department: department,
-      round: currentRound,
-    });
+    items.push(mapSupabaseRowToDocumentItem(row, sheetRow, currentRound));
   });
 
   return items;
 }
 
+// Keep alias fetchFromGoogleSheet so existing imports in App.tsx work seamlessly
+export async function fetchFromGoogleSheet(
+  _sheetId?: string,
+  _sheetName?: string
+): Promise<DocumentItem[]> {
+  return fetchFromSupabase(SUPABASE_TABLE);
+}
+
 /**
- * Save data directly to Google Sheets using Google Sheets REST API v4
+ * Helper to locate target row UUID in Supabase when item.id is not already a UUID
  */
-export async function saveToGoogleSheetDirectly(
+async function resolveSupabaseRowId(
+  item: DocumentItem,
+  tableName = SUPABASE_TABLE
+): Promise<string | null> {
+  if (isUuid(item.id)) {
+    return item.id.trim();
+  }
+
+  try {
+    if (item.receiveNo && item.receiveNo.trim() !== '') {
+      const { data } = await supabase
+        .from(tableName)
+        .select('id, "วันที่รับ"')
+        .eq('เลขทะเบียนรับ', item.receiveNo.trim());
+      if (data && data.length > 0) {
+        return data[data.length - 1].id;
+      }
+    }
+
+    if (item.docNo && item.docNo.trim() !== '') {
+      const { data } = await supabase
+        .from(tableName)
+        .select('id, "วันที่รับ"')
+        .eq('เลขที่เอกสาร', item.docNo.trim());
+      if (data && data.length > 0) {
+        return data[data.length - 1].id;
+      }
+    }
+  } catch (err) {
+    console.warn('Error resolving Supabase row id:', err);
+  }
+
+  return null;
+}
+
+/**
+ * Save data directly to Supabase table "2570-ระบบติดตามเอกสาร"
+ */
+export async function saveToSupabaseDirectly(
   action: 'updateDocument' | 'addRound' | 'createDocument' | 'updateReview' | 'updateFinance' | 'updateBudget',
   item: DocumentItem,
-  sheetId = INITIAL_SHEET_ID,
-  sheetName = INITIAL_SHEET_NAME
+  tableName = SUPABASE_TABLE
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    let token = await getAccessToken();
-    if (!token) {
-      try {
-        const authRes = await googleSignIn();
-        token = authRes?.accessToken || null;
-      } catch (e) {
-        console.warn('Google sign-in attempt for Sheets token notice:', e);
-      }
-    }
-
-    if (!token) {
-      return {
-        success: false,
-        error: 'ไม่มี Google OAuth access token สำหรับการบันทึกข้อมูลลง Google Sheet โดยตรง',
-      };
-    }
-
-    // บันทึกเฉพาะงานสอบทาน (คอลัมน์ Y ถึง AD ในชีท DATA)
+    // 1. บันทึกเฉพาะงานสอบทาน
     if (action === 'updateReview') {
-      let targetRow = item.rowId ? Number(item.rowId) : 0;
-
-      // หากไม่มี rowId ให้ค้นหาแถวที่ถูกต้องในชีท DATA จากเลขทะเบียนรับ (receiveNo) หรือเลขที่เอกสาร (docNo)
-      if (targetRow < 3 && (item.receiveNo || item.docNo)) {
-        try {
-          const checkUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(sheetName)}!C1:I?valueRenderOption=FORMATTED_VALUE`;
-          const checkRes = await fetch(checkUrl, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (checkRes.ok) {
-            const checkJson = await checkRes.json();
-            const rows: string[][] = checkJson.values || [];
-            for (let i = 2; i < rows.length; i++) {
-              const r = rows[i];
-              const recvMatch = item.receiveNo && r && r[0] && String(r[0]).trim() === String(item.receiveNo).trim();
-              const docMatch = item.docNo && r && ((r[6] && String(r[6]).trim() === String(item.docNo).trim()) || (r[5] && String(r[5]).trim() === String(item.docNo).trim()));
-              if (recvMatch || docMatch) {
-                targetRow = i + 1;
-                break;
-              }
-            }
-          }
-        } catch (findErr) {
-          console.warn('Could not query sheet to locate row for updateReview:', targetRow, findErr);
-        }
+      const targetId = await resolveSupabaseRowId(item, tableName);
+      if (!targetId) {
+        return { success: false, error: 'ไม่พบรหัสอ้างอิงเอกสาร (id) ใน Supabase สำหรับบันทึกงานสอบทาน' };
       }
 
-      if (targetRow >= 3) {
-        const range = `${sheetName}!Z${targetRow}:AE${targetRow}`;
-        const reviewValues = [
-          item.reviewReceiveDate ?? '',
-          item.reviewProvider ?? '',
-          item.reviewActionDate ?? '',
-          item.reviewStatus ?? '',
-          item.reviewEditType ?? '',
-          item.reviewEditDetail ?? '',
-        ];
-        const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
-        let res = await fetch(url, {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            range,
-            majorDimension: 'ROWS',
-            values: [reviewValues],
-          }),
-        });
+      const payload: Record<string, any> = {
+        'วันที่รับ_สอบทาน': toNullable(item.reviewReceiveDate),
+        'ผู้ให้บริการ_สอบทาน': toNullable(item.reviewProvider),
+        'วันทำรายการ_สอบทาน': toNullable(item.reviewActionDate),
+        'สถานะ_สอบทาน': toNullable(item.reviewStatus),
+        'ประเภทแก้ไข': toNullable(item.reviewEditType),
+        'หมายเหตุ_สอบทาน': toNullable(item.reviewEditDetail),
+      };
 
-        if (res.status === 401) {
-          try {
-            const authRes = await googleSignIn();
-            if (authRes?.accessToken) {
-              token = authRes.accessToken;
-              res = await fetch(url, {
-                method: 'PUT',
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  range,
-                  majorDimension: 'ROWS',
-                  values: [reviewValues],
-                }),
-              });
-            }
-          } catch (reAuthErr) {
-            console.error('Re-auth error (updateReview):', reAuthErr);
-          }
-        }
+      const { error } = await supabase
+        .from(tableName)
+        .update(payload)
+        .eq('id', targetId);
 
-        if (!res.ok) {
-          const errJson = await res.json().catch(() => ({}));
-          throw new Error(errJson?.error?.message || `Google Sheets API error ${res.status}`);
-        }
-        return { success: true };
-      }
+      if (error) throw error;
+      return { success: true };
     }
 
-    // บันทึกเฉพาะงานการเงิน (คอลัมน์ AE ถึง AQ ในชีท DATA)
+    // 2. บันทึกเฉพาะงานการเงิน
     if (action === 'updateFinance') {
-      let targetRow = item.rowId ? Number(item.rowId) : 0;
-
-      // หากไม่มี rowId ให้ค้นหาแถวที่ถูกต้องในชีท DATA จากเลขทะเบียนรับ (receiveNo) หรือเลขที่เอกสาร (docNo)
-      if (targetRow < 3 && (item.receiveNo || item.docNo)) {
-        try {
-          const checkUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(sheetName)}!C1:I?valueRenderOption=FORMATTED_VALUE`;
-          const checkRes = await fetch(checkUrl, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (checkRes.ok) {
-            const checkJson = await checkRes.json();
-            const rows: string[][] = checkJson.values || [];
-            for (let i = 2; i < rows.length; i++) {
-              const r = rows[i];
-              const recvMatch = item.receiveNo && r && r[0] && String(r[0]).trim() === String(item.receiveNo).trim();
-              const docMatch = item.docNo && r && ((r[6] && String(r[6]).trim() === String(item.docNo).trim()) || (r[5] && String(r[5]).trim() === String(item.docNo).trim()));
-              if (recvMatch || docMatch) {
-                targetRow = i + 1;
-                break;
-              }
-            }
-          }
-        } catch (findErr) {
-          console.warn('Could not query sheet to locate row for updateFinance:', targetRow, findErr);
-        }
+      const targetId = await resolveSupabaseRowId(item, tableName);
+      if (!targetId) {
+        return { success: false, error: 'ไม่พบรหัสอ้างอิงเอกสาร (id) ใน Supabase สำหรับบันทึกงานการเงิน' };
       }
 
-      if (targetRow >= 3) {
-        const range = `${sheetName}!AF${targetRow}:AR${targetRow}`;
-        const financeValues = [
-          item.financeReceiveDate ?? '',
-          item.financePaymentType ?? '',
-          item.financePreparer ?? '',
-          item.financeUrgentCheck ?? '',
-          item.financeActionDate ?? '',
-          item.financeReviewDate ?? '',
-          item.disbursementDate ?? '',
-          item.disbursementPayer ?? '',
-          item.disbursementNotifyDate ?? '',
-          item.disbursementActivityStartDate ?? '',
-          item.disbursementActivityEndDate ?? '',
-          item.financeIssueDate ?? '',
-          item.financeIssueDetail ?? '',
-        ];
-        const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
-        let res = await fetch(url, {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            range,
-            majorDimension: 'ROWS',
-            values: [financeValues],
-          }),
-        });
+      const payload: Record<string, any> = {
+        'วันที่รับ_การเงิน': toNullable(item.financeReceiveDate),
+        'ประเภทการจ่าย': toNullable(item.financePaymentType),
+        'ผู้จัดทำเช็ค/โอนเงิน': toNullable(item.financePreparer),
+        'กรณีเช็คด่วน': toNullable(item.financeUrgentCheck),
+        'วันทำรายการ_การเงิน': toNullable(item.financeActionDate),
+        'วันที่สอบทาน_เช็ค': toNullable(item.financeReviewDate),
+        'วันที่_จ่ายเงิน': toNullable(item.disbursementDate),
+        'ผู้จ่ายเงิน': toNullable(item.disbursementPayer),
+        'วันที่แจ้งรับเงิน': toNullable(item.disbursementNotifyDate),
+        'วันที่เริ่ม_ยืมทดรอง': toNullable(item.disbursementActivityStartDate),
+        'วันสิ้นสุดกิจกรรม': toNullable(item.disbursementActivityEndDate),
+        'วันที่_จ่ายไม่ได้': toNullable(item.financeIssueDate),
+        'หมายเหตุ_ไม่จ่าย': toNullable(item.financeIssueDetail),
+      };
 
-        if (res.status === 401) {
-          try {
-            const authRes = await googleSignIn();
-            if (authRes?.accessToken) {
-              token = authRes.accessToken;
-              res = await fetch(url, {
-                method: 'PUT',
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  range,
-                  majorDimension: 'ROWS',
-                  values: [financeValues],
-                }),
-              });
-            }
-          } catch (reAuthErr) {
-            console.error('Re-auth error (updateFinance):', reAuthErr);
-          }
-        }
+      const { error } = await supabase
+        .from(tableName)
+        .update(payload)
+        .eq('id', targetId);
 
-        if (!res.ok) {
-          const errJson = await res.json().catch(() => ({}));
-          throw new Error(errJson?.error?.message || `Google Sheets API error ${res.status}`);
-        }
-        return { success: true };
-      }
+      if (error) throw error;
+      return { success: true };
     }
 
-    // บันทึกเฉพาะงานงบประมาณ (คอลัมน์ AR ถึง AY ในชีท DATA)
+    // 3. บันทึกเฉพาะงานงบประมาณ
     if (action === 'updateBudget') {
-      let targetRow = item.rowId ? Number(item.rowId) : 0;
-
-      if (targetRow < 3 && (item.receiveNo || item.docNo)) {
-        try {
-          const checkUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(sheetName)}!C1:I?valueRenderOption=FORMATTED_VALUE`;
-          const checkRes = await fetch(checkUrl, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (checkRes.ok) {
-            const checkJson = await checkRes.json();
-            const rows: string[][] = checkJson.values || [];
-            for (let i = 2; i < rows.length; i++) {
-              const r = rows[i];
-              const recvMatch = item.receiveNo && r && r[0] && String(r[0]).trim() === String(item.receiveNo).trim();
-              const docMatch = item.docNo && r && ((r[6] && String(r[6]).trim() === String(item.docNo).trim()) || (r[5] && String(r[5]).trim() === String(item.docNo).trim()));
-              if (recvMatch || docMatch) {
-                targetRow = i + 1;
-                break;
-              }
-            }
-          }
-        } catch (findErr) {
-          console.warn('Could not query sheet to locate row for updateBudget:', targetRow, findErr);
-        }
+      const targetId = await resolveSupabaseRowId(item, tableName);
+      if (!targetId) {
+        return { success: false, error: 'ไม่พบรหัสอ้างอิงเอกสาร (id) ใน Supabase สำหรับบันทึกงานงบประมาณ' };
       }
 
-      if (targetRow >= 3) {
-        const range = `${sheetName}!AS${targetRow}:AZ${targetRow}`;
-        const budgetValues = [
-          item.budgetActionDate ?? '',
-          item.budgetFR ?? '',
-          item.budgetFC ?? '',
-          item.budgetPR ?? '',
-          item.budgetStatus ?? '',
-          item.budgetReceiveDate ?? '',
-          item.budgetCoverDate ?? '',
-          item.budgetDocSetDate ?? '',
-        ];
-        const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
-        let res = await fetch(url, {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            range,
-            majorDimension: 'ROWS',
-            values: [budgetValues],
-          }),
-        });
+      const payload: Record<string, any> = {
+        'วันทำรายการ_ลงนาม': toNullable(item.budgetActionDate),
+        'FR': toNullable(item.budgetFR),
+        'FC': toNullable(item.budgetFC),
+        'PR': toNullable(item.budgetPR),
+        'สถานะ_งบประมาณ': toNullable(item.budgetStatus),
+        'วันที่รับ_งบประมาณ': toNullable(item.budgetReceiveDate),
+        'วันที่ตามใบปะหน้า': toNullable(item.budgetCoverDate),
+        'วันที่ตามชุดเอกสาร': toNullable(item.budgetDocSetDate),
+      };
 
-        if (res.status === 401) {
-          try {
-            const authRes = await googleSignIn();
-            if (authRes?.accessToken) {
-              token = authRes.accessToken;
-              res = await fetch(url, {
-                method: 'PUT',
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  range,
-                  majorDimension: 'ROWS',
-                  values: [budgetValues],
-                }),
-              });
-            }
-          } catch (reAuthErr) {
-            console.error('Re-auth error (updateBudget):', reAuthErr);
+      const { error } = await supabase
+        .from(tableName)
+        .update(payload)
+        .eq('id', targetId);
+
+      if (error) throw error;
+      return { success: true };
+    }
+
+    // 4. บันทึกแก้ไขข้อมูลเอกสาร หรือ งานตรวจจ่าย (updateDocument)
+    if (action === 'updateDocument') {
+      const targetId = await resolveSupabaseRowId(item, tableName);
+      if (targetId) {
+        const payload: Record<string, any> = {
+          'ประเภทเอกสารย่อย': toNullable(item.subType),
+          'QA.': toNullable(item.qa),
+          'วันทำรายการ_ตรวจ': toNullable(item.actionDate),
+          'การดำเนินการ': toNullable(item.action),
+          'สถานะ_งานตรวจ': toNullable(item.status),
+          'Group-กรณีแก้ไข': toNullable(item.editGroup),
+          'หมายเหตุ_งานตรวจ': toNullable(item.editDetail),
+        };
+
+        if (item.agency || item.docRef || item.docNo) {
+          payload['EP.'] = toNullable(item.ep);
+          payload['N/O'] = toNullable(item.no);
+          payload['เลขทะเบียนรับ'] = toNullable(item.receiveNo);
+          payload['ผู้ส่งเอกสาร'] = toNullable(item.sender);
+          payload['โทรศัพท์'] = toNullable(item.phone);
+          payload['โทร.'] = toNullable(item.phone);
+          if (item.email !== undefined) {
+            payload['ที่อยู่อีเมล'] = toNullable(item.email);
           }
+          payload['เลขที่ อว/ ชื่อ'] = toNullable(item.docRef);
+          payload['หน่วยงาน'] = toNullable(item.agency);
+          payload['เลขที่เอกสาร'] = toNullable(item.docNo);
+          payload['ประเภทเอกสาร'] = toNullable(item.docType);
+          payload['วันที่รับ'] = toNullable(item.dateReceive);
+          payload['วันที่ส่ง'] = toNullable(item.dateDesk);
+          payload['วันที่ส่งคืน'] = toNullable(item.dateReturn);
+          payload['สถานะ_ธุรการส่งคืน'] = toNullable(item.returnStatus);
+          payload['ผู้ให้บริการ'] = toNullable(item.providerAuto);
+          payload['เปลี่ยนโต๊ะบริการ'] = toNullable(item.providerChange);
+          payload['ผู้ให้บริการ-final'] = toNullable(item.providerFinal);
+          payload['หมายเหตุ'] = toNullable(item.note);
         }
 
-        if (!res.ok) {
-          const errJson = await res.json().catch(() => ({}));
-          throw new Error(errJson?.error?.message || `Google Sheets API error ${res.status}`);
-        }
+        const { error } = await supabase
+          .from(tableName)
+          .update(payload)
+          .eq('id', targetId);
+
+        if (error) throw error;
         return { success: true };
       }
     }
 
-    const rowValues = [
-      item.ep ?? '',
-      item.no ?? '',
-      item.receiveNo ?? '',
-      item.sender ?? '',
-      item.phone ?? '',
-      item.email ?? '',
-      item.docRef ?? '',
-      item.agency ?? '',
-      item.docNo ?? '',
-      item.docType ?? '',
-      item.dateReceive ?? '',
-      item.dateDesk ?? '',
-      item.dateReturn ?? '',
-      item.returnStatus ?? '',
-      item.providerAuto ?? '',
-      item.providerChange ?? '',
-      item.providerFinal ?? '',
-      item.note ?? '',
-      item.subType ?? '',
-      item.qa ?? '',
-      item.actionDate ?? '',
-      item.action ?? '',
-      item.status ?? '',
-      item.editGroup ?? '',
-      item.editDetail ?? '',
-      item.reviewReceiveDate ?? '',
-      item.reviewProvider ?? '',
-      item.reviewActionDate ?? '',
-      item.reviewStatus ?? '',
-      item.reviewEditType ?? '',
-      item.reviewEditDetail ?? '',
-      item.financeReceiveDate ?? '',
-      item.financePaymentType ?? '',
-      item.financePreparer ?? '',
-      item.financeUrgentCheck ?? '',
-      item.financeActionDate ?? '',
-      item.financeReviewDate ?? '',
-      item.disbursementDate ?? '',
-      item.disbursementPayer ?? '',
-      item.disbursementNotifyDate ?? '',
-      item.disbursementActivityStartDate ?? '',
-      item.disbursementActivityEndDate ?? '',
-      item.financeIssueDate ?? '',
-      item.financeIssueDetail ?? '',
-      item.budgetActionDate ?? '',
-      item.budgetFR ?? '',
-      item.budgetFC ?? '',
-      item.budgetPR ?? '',
-      item.budgetStatus ?? '',
-      item.budgetReceiveDate ?? '',
-      item.budgetCoverDate ?? '',
-      item.budgetDocSetDate ?? '',
-    ];
+    // 5. เพิ่มเอกสารใหม่ หรือ เพิ่มรอบใหม่ (createDocument / addRound)
+    const fullPayload: Record<string, any> = {
+      id: isUuid(item.id) ? item.id.trim() : generateUuid(),
+      'EP.': toNullable(item.ep),
+      'N/O': toNullable(item.no) || 'N',
+      'เลขทะเบียนรับ': toNullable(item.receiveNo),
+      'ผู้ส่งเอกสาร': toNullable(item.sender),
+      'โทรศัพท์': toNullable(item.phone),
+      'โทร.': toNullable(item.phone),
+      'ที่อยู่อีเมล': toNullable(item.email),
+      'เลขที่ อว/ ชื่อ': toNullable(item.docRef),
+      'หน่วยงาน': toNullable(item.agency),
+      'เลขที่เอกสาร': toNullable(item.docNo),
+      'ประเภทเอกสาร': toNullable(item.docType),
+      'วันที่รับ': toNullable(item.dateReceive),
+      'วันที่ส่ง': toNullable(item.dateDesk),
+      'วันที่ส่งคืน': toNullable(item.dateReturn),
+      'สถานะ_ธุรการส่งคืน': toNullable(item.returnStatus),
+      'ผู้ให้บริการ': toNullable(item.providerAuto),
+      'เปลี่ยนโต๊ะบริการ': toNullable(item.providerChange),
+      'ผู้ให้บริการ-final': toNullable(item.providerFinal),
+      'หมายเหตุ': toNullable(item.note),
+      'ประเภทเอกสารย่อย': toNullable(item.subType),
+      'QA.': toNullable(item.qa),
+      'วันทำรายการ_ตรวจ': toNullable(item.actionDate),
+      'การดำเนินการ': toNullable(item.action),
+      'สถานะ_งานตรวจ': toNullable(item.status),
+      'Group-กรณีแก้ไข': toNullable(item.editGroup),
+      'หมายเหตุ_งานตรวจ': toNullable(item.editDetail),
+      'วันที่รับ_สอบทาน': toNullable(item.reviewReceiveDate),
+      'ผู้ให้บริการ_สอบทาน': toNullable(item.reviewProvider),
+      'วันทำรายการ_สอบทาน': toNullable(item.reviewActionDate),
+      'สถานะ_สอบทาน': toNullable(item.reviewStatus),
+      'ประเภทแก้ไข': toNullable(item.reviewEditType),
+      'หมายเหตุ_สอบทาน': toNullable(item.reviewEditDetail),
+      'วันที่รับ_การเงิน': toNullable(item.financeReceiveDate),
+      'ประเภทการจ่าย': toNullable(item.financePaymentType),
+      'ผู้จัดทำเช็ค/โอนเงิน': toNullable(item.financePreparer),
+      'กรณีเช็คด่วน': toNullable(item.financeUrgentCheck),
+      'วันทำรายการ_การเงิน': toNullable(item.financeActionDate),
+      'วันที่สอบทาน_เช็ค': toNullable(item.financeReviewDate),
+      'วันที่_จ่ายเงิน': toNullable(item.disbursementDate),
+      'ผู้จ่ายเงิน': toNullable(item.disbursementPayer),
+      'วันที่แจ้งรับเงิน': toNullable(item.disbursementNotifyDate),
+      'วันที่เริ่ม_ยืมทดรอง': toNullable(item.disbursementActivityStartDate),
+      'วันสิ้นสุดกิจกรรม': toNullable(item.disbursementActivityEndDate),
+      'วันที่_จ่ายไม่ได้': toNullable(item.financeIssueDate),
+      'หมายเหตุ_ไม่จ่าย': toNullable(item.financeIssueDetail),
+      'วันทำรายการ_ลงนาม': toNullable(item.budgetActionDate),
+      'FR': toNullable(item.budgetFR),
+      'FC': toNullable(item.budgetFC),
+      'PR': toNullable(item.budgetPR),
+      'สถานะ_งบประมาณ': toNullable(item.budgetStatus),
+      'วันที่รับ_งบประมาณ': toNullable(item.budgetReceiveDate),
+      'วันที่ตามใบปะหน้า': toNullable(item.budgetCoverDate),
+      'วันที่ตามชุดเอกสาร': toNullable(item.budgetDocSetDate),
+      'TYPE': '1. ตรวจจ่าย-งานใหม่',
+    };
 
-    if (action === 'updateDocument') {
-      let targetRow = item.rowId ? Number(item.rowId) : 0;
+    const { error } = await supabase.from(tableName).insert([fullPayload]);
+    if (error) throw error;
 
-      // หากไม่มี rowId ให้ค้นหาแถวที่ถูกต้องในชีท DATA จากเลขทะเบียนรับ (receiveNo) หรือเลขที่เอกสาร (docNo)
-      if (targetRow < 3 && (item.receiveNo || item.docNo)) {
-        try {
-          const checkUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(sheetName)}!C1:I?valueRenderOption=FORMATTED_VALUE`;
-          const checkRes = await fetch(checkUrl, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (checkRes.ok) {
-            const checkJson = await checkRes.json();
-            const rows: string[][] = checkJson.values || [];
-            // เริ่มหาจากแถวที่ 3 (index 2) ข้าม Header 2 แถวแรก
-            for (let i = 2; i < rows.length; i++) {
-              const r = rows[i];
-              const recvMatch = item.receiveNo && r && r[0] && String(r[0]).trim() === String(item.receiveNo).trim();
-              const docMatch = item.docNo && r && ((r[6] && String(r[6]).trim() === String(item.docNo).trim()) || (r[5] && String(r[5]).trim() === String(item.docNo).trim()));
-              if (recvMatch || docMatch) {
-                targetRow = i + 1; // Google Sheets row number (1-based)
-                break;
-              }
-            }
-          }
-        } catch (findErr) {
-          console.warn('Could not query sheet to locate row, using targetRow:', targetRow, findErr);
-        }
-      }
-
-      if (targetRow >= 3) {
-        let isSuccess = false;
-
-        // 1. บันทึกข้อมูลงานตรวจจ่ายลงคอลัมน์ S ถึง Y (เฉพาะเมื่อมีข้อมูลการตรวจจ่ายอย่างน้อย 1 ฟิลด์ ป้องกันการเขียนทับด้วยค่าว่าง)
-        const hasInspectionData = Boolean(
-          (item.actionDate && item.actionDate.trim() !== '') ||
-          (item.action && item.action.trim() !== '') ||
-          (item.status && item.status.trim() !== '') ||
-          (item.qa && item.qa.trim() !== '') ||
-          (item.subType && item.subType.trim() !== '') ||
-          (item.editGroup && item.editGroup.trim() !== '') ||
-          (item.editDetail && item.editDetail.trim() !== '')
-        );
-
-        if (hasInspectionData) {
-          const rxRange = `${sheetName}!S${targetRow}:Y${targetRow}`;
-          const rxValues = [
-            item.subType ?? '',
-            item.qa ?? '',
-            item.actionDate ?? '',
-            item.action ?? '',
-            item.status ?? '',
-            item.editGroup ?? '',
-            item.editDetail ?? '',
-          ];
-          const rxUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(rxRange)}?valueInputOption=USER_ENTERED`;
-          let res = await fetch(rxUrl, {
-            method: 'PUT',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              range: rxRange,
-              majorDimension: 'ROWS',
-              values: [rxValues],
-            }),
-          });
-
-          if (res.status === 401) {
-            try {
-              const authRes = await googleSignIn();
-              if (authRes?.accessToken) {
-                token = authRes.accessToken;
-                res = await fetch(rxUrl, {
-                  method: 'PUT',
-                  headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    range: rxRange,
-                    majorDimension: 'ROWS',
-                    values: [rxValues],
-                  }),
-                });
-              }
-            } catch (reAuthErr) {
-              console.error('Re-auth error (updateDocument rx):', reAuthErr);
-            }
-          }
-
-          if (res.ok) {
-            isSuccess = true;
-          }
-        }
-
-        // 2. หากเป็นการแก้ไขข้อมูลทั่วไปจาก EditDocumentModal ให้อัปเดตเฉพาะช่วง A ถึง R (ไม่แตะต้องคอลัมน์ S ถึง Y ของงานตรวจจ่าย)
-        if (item.agency && item.docRef && item.docNo && !hasInspectionData) {
-          const arRange = `${sheetName}!A${targetRow}:R${targetRow}`;
-          const arValues = rowValues.slice(0, 18);
-          const arUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(arRange)}?valueInputOption=USER_ENTERED`;
-          const arRes = await fetch(arUrl, {
-            method: 'PUT',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              range: arRange,
-              majorDimension: 'ROWS',
-              values: [arValues],
-            }),
-          });
-          if (arRes.ok) {
-            isSuccess = true;
-          }
-        }
-
-        if (isSuccess) {
-          return { success: true };
-        }
-      }
-    }
-
-    // Append row for addRound or createDocument (หรือกรณีไม่พบแถวเดิม)
-    const range = `${sheetName}!A:AZ`;
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
-    let res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        range,
-        majorDimension: 'ROWS',
-        values: [rowValues],
-      }),
-    });
-
-    if (res.status === 401) {
-      try {
-        const authRes = await googleSignIn();
-        if (authRes?.accessToken) {
-          token = authRes.accessToken;
-          res = await fetch(url, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              range,
-              majorDimension: 'ROWS',
-              values: [rowValues],
-            }),
-          });
-        }
-      } catch (reAuthErr) {
-        console.error('Re-auth error on append:', reAuthErr);
-      }
-    }
-
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson?.error?.message || `Google Sheets API error ${res.status}`);
-    }
     return { success: true };
   } catch (err: any) {
-    console.error('Error saving directly to Google Sheet:', err);
+    console.error('Error saving directly to Supabase:', err);
     return {
       success: false,
-      error: err?.message || 'เกิดข้อผิดพลาดในการบันทึกลง Google Sheet',
+      error: err?.message || 'เกิดข้อผิดพลาดในการบันทึกลง Supabase',
     };
   }
 }
 
+export async function saveToGoogleSheetDirectly(
+  action: 'updateDocument' | 'addRound' | 'createDocument' | 'updateReview' | 'updateFinance' | 'updateBudget',
+  item: DocumentItem,
+  _sheetId?: string,
+  _sheetName?: string
+): Promise<{ success: boolean; error?: string }> {
+  return saveToSupabaseDirectly(action, item, SUPABASE_TABLE);
+}
+
 /**
- * Send update directly to Google Sheets REST API, /api/sheets, or Google Apps Script Web App
+ * Send update directly to Supabase table "2570-ระบบติดตามเอกสาร"
  */
 export async function syncToGas(
   action: 'updateDocument' | 'addRound' | 'createDocument' | 'updateReview' | 'updateFinance' | 'updateBudget',
   data: any
 ): Promise<boolean> {
-  // 1. First priority: Direct Google Sheets REST API v4
+  // 1. Primary: Direct Supabase SDK / REST API
   try {
-    const directResult = await saveToGoogleSheetDirectly(action, data);
+    const directResult = await saveToSupabaseDirectly(action, data);
     if (directResult.success) {
       return true;
     }
   } catch (e) {
-    console.warn('Direct Google Sheet API attempt fallback:', e);
+    console.warn('Direct Supabase save attempt fallback:', e);
   }
 
-  // 2. Second attempt: Direct /api/sheets endpoint (available on Vercel & local server)
+  // 2. Fallback: /api/sheets endpoint
   try {
-    const token = await getAccessToken();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
     const res = await fetch('/api/sheets', {
       method: 'POST',
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ action, data }),
     });
     if (res.ok) {
@@ -1056,122 +566,49 @@ export async function syncToGas(
     console.warn('Call to /api/sheets fallback notice:', apiErr);
   }
 
-  // 3. Third attempt: Direct Google Apps Script Web App URL if configured
-  const gasUrl = getStoredGasUrl();
-  if (gasUrl) {
-    try {
-      await fetch(gasUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'text/plain;charset=utf-8',
-        },
-        body: JSON.stringify({ action, data }),
-        mode: 'no-cors',
-      });
-      return true;
-    } catch (err) {
-      console.warn('Failed to sync to GAS Web App with POST, trying GET fallback...', err);
-      try {
-        const getUrl = new URL(gasUrl);
-        getUrl.searchParams.set('action', action);
-        getUrl.searchParams.set('data', JSON.stringify(data));
-        await fetch(getUrl.toString(), { mode: 'no-cors' });
-        return true;
-      } catch (getErr) {
-        console.error('Failed to sync to GAS Web App', getErr);
-      }
-    }
-  }
-
   return false;
 }
 
+export const syncToSupabase = syncToGas;
+
 /**
- * บันทึกข้อมูลหลายรายการลง Google Sheet พร้อมกัน (Batch Update)
+ * บันทึกข้อมูลหลายรายการลง Supabase พร้อมกัน (Batch Update สำหรับงานสอบทาน)
  */
 export async function batchSaveToGoogleSheet(
   items: DocumentItem[],
   onProgress?: (done: number, total: number) => void,
-  sheetId = INITIAL_SHEET_ID,
-  sheetName = INITIAL_SHEET_NAME
+  _sheetId?: string,
+  _sheetName?: string
 ): Promise<{ success: boolean; updatedCount: number; error?: string }> {
   if (!items || items.length === 0) {
     return { success: true, updatedCount: 0 };
   }
 
-  // พยายามใช้ Google Sheets REST API v4 batchUpdate หากมี token
-  try {
-    let token = await getAccessToken();
-    if (token) {
-      const dataEntries: { range: string; values: any[][] }[] = [];
-
-      for (const item of items) {
-        const targetRow = item.rowId ? Number(item.rowId) : 0;
-        if (targetRow >= 3) {
-          // บันทึกเฉพาะข้อมูลรับเอกสารงานสอบทาน (คอลัมน์ Z และ AA) เพื่อป้องกันการเขียนทับคอลัมน์อื่น
-          dataEntries.push({
-            range: `${sheetName}!Z${targetRow}:AA${targetRow}`,
-            values: [[item.reviewReceiveDate ?? '', item.reviewProvider ?? '']],
-          });
-        }
-      }
-
-      if (dataEntries.length > 0) {
-        const batchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchUpdate`;
-        let batchRes = await fetch(batchUrl, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            valueInputOption: 'USER_ENTERED',
-            data: dataEntries,
-          }),
-        });
-
-        if (batchRes.status === 401) {
-          try {
-            const authRes = await googleSignIn();
-            if (authRes?.accessToken) {
-              token = authRes.accessToken;
-              batchRes = await fetch(batchUrl, {
-                method: 'POST',
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  valueInputOption: 'USER_ENTERED',
-                  data: dataEntries,
-                }),
-              });
-            }
-          } catch (reAuthErr) {
-            console.error('Re-auth error in batchSaveToGoogleSheet:', reAuthErr);
-          }
-        }
-
-        if (batchRes.ok) {
-          if (onProgress) onProgress(items.length, items.length);
-          return { success: true, updatedCount: items.length };
-        }
-      }
-    }
-  } catch (directBatchErr) {
-    console.warn('Direct batch update fallback to sequential sync:', directBatchErr);
-  }
-
-  // Fallback: อัปเดตทีละรายการผ่าน syncToGas พร้อมนับ progress (สำหรับรับเอกสารงานสอบทาน)
   let successCount = 0;
+
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     try {
-      const ok = await syncToGas('updateReview', item);
-      if (ok) successCount++;
+      const targetId = await resolveSupabaseRowId(item, SUPABASE_TABLE);
+      if (targetId) {
+        const { error } = await supabase
+          .from(SUPABASE_TABLE)
+          .update({
+            'วันที่รับ_สอบทาน': toNullable(item.reviewReceiveDate),
+            'ผู้ให้บริการ_สอบทาน': toNullable(item.reviewProvider),
+          })
+          .eq('id', targetId);
+
+        if (!error) {
+          successCount++;
+        } else {
+          console.error('Batch update item error:', item.id, error);
+        }
+      }
     } catch (itemErr) {
       console.error('Error saving item in batch', item.id, itemErr);
     }
+
     if (onProgress) {
       onProgress(i + 1, items.length);
     }
@@ -1182,3 +619,5 @@ export async function batchSaveToGoogleSheet(
     updatedCount: successCount,
   };
 }
+
+export const batchSaveToSupabase = batchSaveToGoogleSheet;

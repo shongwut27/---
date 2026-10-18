@@ -12,6 +12,12 @@ import {
   AlertCircle,
   Building2,
   User,
+  Sparkles,
+  RotateCcw,
+  Hash,
+  UserCheck,
+  Layers,
+  MessageSquareText,
 } from 'lucide-react';
 
 // QA Options (45 ตัวเลือก)
@@ -125,6 +131,7 @@ export const SUB_TYPE_OPTIONS = [
 ];
 
 interface SearchableComboboxProps {
+  stepNumber?: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -132,9 +139,11 @@ interface SearchableComboboxProps {
   placeholder?: string;
   id?: string;
   required?: boolean;
+  highlightStatus?: boolean;
 }
 
 const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
+  stepNumber,
   label,
   value,
   onChange,
@@ -142,6 +151,7 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
   placeholder = 'เลือกหรือพิมพ์ค้นหา...',
   id,
   required,
+  highlightStatus = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -162,11 +172,27 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
     normalize(opt).includes(normalize(searchTerm))
   );
 
+  const getStatusDotColor = (text: string) => {
+    if (!text) return 'bg-slate-300';
+    if (text.includes('แก้ไข') || text.includes('ไม่ผ่าน') || text.includes('ไม่ได้') || text.includes('ERROR')) {
+      return 'bg-rose-500';
+    }
+    if (text.includes('ถูกต้อง')) {
+      return 'bg-emerald-500';
+    }
+    return 'bg-blue-500';
+  };
+
   return (
     <div className="relative" ref={wrapperRef} id={id}>
-      <label className="block text-slate-800 font-bold mb-1.5 text-base sm:text-lg">
-        {label}
-        {required && <span className="text-red-500 font-bold ml-1">*</span>}
+      <label className="flex items-center gap-1.5 text-slate-700 font-bold mb-1.5 text-xs sm:text-[13px] h-5 font-['Prompt','Sarabun',sans-serif]">
+        {stepNumber && (
+          <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 text-[10px] font-mono font-bold inline-flex items-center justify-center shrink-0">
+            {stepNumber}
+          </span>
+        )}
+        <span>{label}</span>
+        {required && <span className="text-rose-500 font-bold">*</span>}
       </label>
 
       <div className="relative">
@@ -175,12 +201,23 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
             setIsOpen(!isOpen);
             setSearchTerm('');
           }}
-          className="w-full px-4 py-3 bg-slate-50 hover:bg-white border border-slate-300 hover:border-sky-400 rounded-xl text-base sm:text-lg flex items-center justify-between cursor-pointer focus-within:ring-2 focus-within:ring-sky-500 focus-within:bg-white transition-all shadow-xs min-h-[52px]"
+          className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-xs sm:text-sm flex items-center justify-between cursor-pointer transition-all shadow-2xs min-h-[42px] ${
+            isOpen
+              ? 'border-blue-500 ring-3 ring-blue-500/15'
+              : value
+              ? 'border-slate-300 hover:border-blue-400'
+              : 'border-slate-200 hover:border-blue-400 bg-slate-50/40 hover:bg-white'
+          }`}
         >
-          <span className={`truncate ${value ? 'text-slate-900 font-bold' : 'text-slate-400'}`}>
-            {value || placeholder}
-          </span>
-          <div className="flex items-center gap-1.5 shrink-0 ml-3">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            {highlightStatus && value && (
+              <span className={`w-2 h-2 rounded-full shrink-0 ${getStatusDotColor(value)}`} />
+            )}
+            <span className={`truncate ${value ? 'text-slate-900 font-bold' : 'text-slate-400'}`}>
+              {value || placeholder}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 shrink-0 ml-2">
             {value && (
               <button
                 type="button"
@@ -188,20 +225,25 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                   e.stopPropagation();
                   onChange('');
                 }}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-md"
+                className="p-1 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-md transition-colors"
+                title="ล้างค่า"
               >
-                <X className="w-5 h-5" />
+                <X className="w-3.5 h-3.5" />
               </button>
             )}
-            <ChevronDown className="w-5 h-5 text-slate-400" />
+            <ChevronDown
+              className={`w-4 h-4 text-slate-400 transition-transform duration-150 ${
+                isOpen ? 'rotate-180 text-blue-600' : ''
+              }`}
+            />
           </div>
         </div>
 
         {isOpen && (
-          <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-300 rounded-xl shadow-2xl overflow-hidden max-h-72 flex flex-col text-base">
+          <div className="absolute z-50 left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden max-h-56 flex flex-col text-xs sm:text-sm animate-in fade-in zoom-in-95 duration-100">
             {/* Search Input inside Dropdown */}
-            <div className="p-3 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
-              <Search className="w-5 h-5 text-slate-400 shrink-0" />
+            <div className="p-2 border-b border-slate-100 bg-slate-50/80 flex items-center gap-2">
+              <Search className="w-4 h-4 text-blue-500 shrink-0 ml-1" />
               <input
                 type="text"
                 autoFocus
@@ -219,22 +261,22 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                     }
                   }
                 }}
-                placeholder="พิมพ์เพื่อค้นหา..."
-                className="w-full bg-transparent text-base focus:outline-none text-slate-900 placeholder-slate-400 font-normal"
+                placeholder="พิมพ์เพื่อค้นหาตัวเลือก..."
+                className="w-full bg-transparent text-xs sm:text-sm focus:outline-none text-slate-900 placeholder-slate-400 font-normal"
               />
               {searchTerm && (
                 <button
                   type="button"
                   onClick={() => setSearchTerm('')}
-                  className="p-1 text-slate-400 hover:text-slate-600 rounded-md"
+                  className="p-0.5 text-slate-400 hover:text-slate-600 rounded-md"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
 
             {/* Options List */}
-            <div className="overflow-y-auto p-1.5 divide-y divide-slate-100">
+            <div className="overflow-y-auto p-1.5 space-y-0.5">
               {filteredOptions.length > 0 ? (
                 filteredOptions.map((opt, idx) => {
                   const isSelected = opt === value;
@@ -246,19 +288,24 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                         onChange(opt);
                         setIsOpen(false);
                       }}
-                      className={`w-full text-left px-4 py-3 rounded-lg flex items-center justify-between gap-2 transition-colors cursor-pointer text-base ${
+                      className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between gap-2 transition-colors cursor-pointer text-xs sm:text-sm ${
                         isSelected
-                          ? 'bg-sky-50 text-sky-900 font-bold border border-sky-200'
-                          : 'text-slate-800 hover:bg-slate-100'
+                          ? 'bg-blue-50 text-blue-900 font-bold border border-blue-200/80'
+                          : 'text-slate-700 hover:bg-slate-100/80'
                       }`}
                     >
-                      <span className="truncate">{opt}</span>
-                      {isSelected && <Check className="w-5 h-5 text-sky-600 shrink-0" />}
+                      <div className="flex items-center gap-2 min-w-0">
+                        {highlightStatus && (
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${getStatusDotColor(opt)}`} />
+                        )}
+                        <span className="truncate">{opt}</span>
+                      </div>
+                      {isSelected && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
                     </button>
                   );
                 })
               ) : (
-                <div className="px-4 py-6 text-center text-slate-400 text-base">
+                <div className="px-3 py-4 text-center text-slate-400 text-xs">
                   ไม่พบรายการที่ตรงกับ &quot;{searchTerm}&quot;
                 </div>
               )}
@@ -287,6 +334,7 @@ export const InspectionRecordModal: React.FC<InspectionRecordModalProps> = ({
 }) => {
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(item);
   const [isSaving, setIsSaving] = useState(false);
+  const [isConfirmingClear, setIsConfirmingClear] = useState(false);
 
   // Form Fields
   const [actionDate, setActionDate] = useState<string>('');
@@ -321,12 +369,10 @@ export const InspectionRecordModal: React.FC<InspectionRecordModalProps> = ({
         const docIsPrakaymas = docProvider.includes('ประกายมาศ');
         let initSubType = docIsPrakaymas ? (currentDoc.subType || '') : '';
         let initQa = currentDoc.qa || '';
-        // หากไม่ใช่ประกายมาศและเคยมีค่า QA ไปค้างใน subType ให้ย้ายมาที่ QA
         if (!docIsPrakaymas && !initQa && currentDoc.subType) {
           initQa = currentDoc.subType;
         }
 
-        // วันที่ดำเนินการ: แสดงวันและเวลาปัจจุบันโดยอัตโนมัติ (Timestamp) สามารถแก้ไขได้
         setActionDate(currentDoc.actionDate?.trim() || new Date().toLocaleString('th-TH'));
         setSubType(initSubType);
         setQa(initQa);
@@ -376,7 +422,6 @@ export const InspectionRecordModal: React.FC<InspectionRecordModalProps> = ({
     e.preventDefault();
     if (!selectedDoc) return;
 
-    // ช่องที่บังคับว่าต้องพิมพ์/เลือก
     if (!actionDate.trim()) {
       setErrorMessage('กรุณากรอก "วันที่ดำเนินการ"');
       return;
@@ -415,243 +460,328 @@ export const InspectionRecordModal: React.FC<InspectionRecordModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
-        {/* Modal Header */}
-        <div className="px-8 py-5 border-b border-sky-100 bg-sky-50/80 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-sky-500 text-white flex items-center justify-center shadow-md shrink-0">
-              <ClipboardCheck className="w-8 h-8" />
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-200/90 animate-in fade-in zoom-in-95 duration-150">
+        {/* Top Accent Strip */}
+        <div className="h-1 bg-gradient-to-r from-amber-400 via-sky-400 to-blue-600 w-full" />
+
+        {/* Executive Modal Header */}
+        <div className="px-5 py-3.5 bg-gradient-to-r from-slate-900 via-blue-950 to-sky-900 text-white flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-white/15 ring-1 ring-white/25 backdrop-blur-md text-amber-300 flex items-center justify-center shadow-inner shrink-0">
+              <ClipboardCheck className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-['Prompt','Sarabun',sans-serif]">
-                บันทึกข้อมูลผลการตรวจจ่าย (งานตรวจจ่าย)
-              </h3>
-              <p className="text-sm sm:text-base text-sky-800 font-medium mt-0.5">
-                กรอกข้อมูลการดำเนินการ, QA, สถานะ และกรณีแก้ไขสำหรับเอกสาร
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm sm:text-base font-bold text-white font-['Prompt','Sarabun',sans-serif] leading-tight">
+                  บันทึกข้อมูลผลการตรวจจ่าย
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-400/20 text-sky-200 border border-sky-400/30">
+                  งานตรวจจ่าย
+                </span>
+              </div>
+              <p className="text-[11px] text-sky-200/85 font-normal mt-0.5 truncate">
+                ระบุผลการดำเนินการ ระดับ QA สถานะเอกสาร และรายละเอียดการตรวจสอบ
               </p>
             </div>
           </div>
+
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-xl transition-colors cursor-pointer"
+            className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer shrink-0"
             title="ปิดหน้าต่าง"
           >
-            <X className="w-7 h-7" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Form */}
         <form onSubmit={handleSubmit}>
-          <div className="p-8 max-h-[75vh] overflow-y-auto space-y-6 text-base">
-            {/* Document Info Card / Selector */}
-            <div className="bg-slate-50 border border-slate-300 rounded-2xl p-5 space-y-3 shadow-xs">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <span className="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2 font-['Prompt','Sarabun',sans-serif]">
-                  <FileText className="w-5 h-5 text-sky-600" />
-                  <span>เอกสารที่บันทึกข้อมูล:</span>
-                </span>
+          <div className="p-4 sm:p-5 max-h-[82vh] overflow-y-auto space-y-4 text-xs sm:text-sm bg-slate-50/40">
+            {/* Document Summary Ticket Card */}
+            {selectedDoc && (
+              <div className="bg-white border border-sky-200/90 rounded-2xl overflow-hidden shadow-xs">
+                {/* Top Ticket Bar: Key Badges & Document Switcher */}
+                <div className="px-3.5 py-2.5 bg-gradient-to-r from-sky-50/90 via-blue-50/50 to-white border-b border-sky-100 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-600 text-white font-mono font-extrabold text-sm shadow-2xs">
+                      <Hash className="w-4 h-4 text-sky-200" />
+                      <span>ทะเบียนรับ: {selectedDoc.receiveNo || '-'}</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 border border-slate-200 font-mono font-medium text-[11px]">
+                      <FileText className="w-3 h-3 text-slate-400" />
+                      <span>เลขที่เอกสาร: {selectedDoc.docNo || '-'}</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-xs">
+                      <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>{selectedDoc.providerFinal || selectedDoc.providerAuto || '-'}</span>
+                    </span>
+                  </div>
 
-                {documents.length > 1 && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-600 text-sm sm:text-base font-medium">เปลี่ยนเอกสาร:</span>
-                    <select
-                      value={selectedDoc?.docNo || ''}
-                      onChange={(e) => handleDocSelectChange(e.target.value)}
-                      className="bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm sm:text-base font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 max-w-[280px] truncate shadow-2xs"
-                    >
-                      {documents.map((d, idx) => (
-                        <option key={`${d.id || d.rowId || 'doc'}-${d.docNo || d.receiveNo || idx}`} value={d.docNo || d.receiveNo || String(d.rowId)}>
-                          {d.docNo || d.receiveNo || `แถวที่ ${d.rowId}`} - {d.agency || d.docType}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
+                  {documents.length > 1 && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-500 text-[11px] font-semibold">สลับเอกสาร:</span>
+                      <select
+                        value={selectedDoc?.docNo || ''}
+                        onChange={(e) => handleDocSelectChange(e.target.value)}
+                        className="bg-white border border-slate-200 hover:border-blue-400 rounded-lg px-2 py-1 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-[190px] truncate cursor-pointer shadow-2xs"
+                      >
+                        {documents.map((d, idx) => (
+                          <option
+                            key={`${d.id || d.rowId || 'doc'}-${d.docNo || d.receiveNo || idx}`}
+                            value={d.docNo || d.receiveNo || String(d.rowId)}
+                          >
+                            {d.docNo || d.receiveNo || `แถวที่ ${d.rowId}`} - {d.agency || d.docType}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
 
-              {selectedDoc && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-200 text-sm">
-                  <div>
-                    <span className="text-slate-500 text-xs sm:text-sm block font-medium">เลขที่เอกสาร</span>
-                    <span className="font-mono font-bold text-slate-900 text-base sm:text-lg truncate block">
-                      {selectedDoc.docNo}
-                    </span>
+                {/* Bottom Ticket Metadata Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 px-3.5 py-2.5 bg-white text-xs">
+                  <div className="py-1 sm:py-0 sm:pr-3 flex items-start gap-2 min-w-0">
+                    <Building2 className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <span className="text-[10px] text-slate-400 font-semibold block uppercase">หน่วยงาน</span>
+                      <span className="font-bold text-slate-800 truncate block" title={selectedDoc.agency}>
+                        {selectedDoc.agency || '-'}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-slate-500 text-xs sm:text-sm block font-medium">เลขทะเบียนรับ</span>
-                    <span className="font-mono font-bold text-slate-900 text-base sm:text-lg truncate block">
-                      {selectedDoc.receiveNo || '-'}
-                    </span>
+                  <div className="py-1 sm:py-0 sm:px-3 flex items-start gap-2 min-w-0">
+                    <Layers className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <span className="text-[10px] text-slate-400 font-semibold block uppercase">ประเภทเอกสาร</span>
+                      <span className="font-bold text-slate-800 truncate block" title={selectedDoc.docType}>
+                        {selectedDoc.docType || '-'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="col-span-2 truncate">
-                    <span className="text-slate-500 text-xs sm:text-sm block font-medium">หน่วยงาน</span>
-                    <span className="font-bold text-slate-900 text-base sm:text-lg truncate block" title={selectedDoc.agency}>
-                      {selectedDoc.agency || '-'}
-                    </span>
-                  </div>
-                  <div className="truncate">
-                    <span className="text-slate-500 text-xs sm:text-sm block font-medium">ประเภทเอกสาร</span>
-                    <span className="font-bold text-slate-900 text-base sm:text-lg truncate block">
-                      {selectedDoc.docType || '-'}
-                    </span>
-                  </div>
-                  <div className="truncate">
-                    <span className="text-slate-500 text-xs sm:text-sm block font-medium">ผู้ให้บริการ</span>
-                    <span className="font-bold text-emerald-800 text-base sm:text-lg truncate block">
-                      {selectedDoc.providerFinal || selectedDoc.providerAuto || '-'}
-                    </span>
-                  </div>
-                  <div className="col-span-2 truncate">
-                    <span className="text-slate-500 text-xs sm:text-sm block font-medium">ผู้ส่ง</span>
-                    <span className="font-bold text-slate-800 text-base sm:text-lg truncate block" title={selectedDoc.sender}>
-                      {selectedDoc.sender || '-'}
-                    </span>
+                  <div className="py-1 sm:py-0 sm:pl-3 flex items-start gap-2 min-w-0">
+                    <User className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <span className="text-[10px] text-slate-400 font-semibold block uppercase">ผู้ส่งเอกสาร</span>
+                      <span className="font-bold text-slate-800 truncate block" title={selectedDoc.sender}>
+                        {selectedDoc.sender || '-'}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              )}
-            </div>
-
-            {/* 1. วันที่ดำเนินการ (Timestamp) */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-slate-800 font-bold text-base sm:text-lg flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-sky-600" />
-                  <span>วันที่ดำเนินการ</span>
-                  <span className="text-red-500 font-bold">*</span>
-                  <span className="text-slate-400 font-normal text-xs sm:text-sm">(Timestamp ปัจจุบันอัตโนมัติ / แก้ไขได้)</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={handleResetTimestamp}
-                  className="text-sm sm:text-base text-sky-600 hover:text-sky-800 hover:underline font-bold cursor-pointer"
-                >
-                  ใช้วัน-เวลาปัจจุบัน
-                </button>
               </div>
-              <input
-                type="text"
-                required
-                value={actionDate}
-                onChange={(e) => {
-                  setActionDate(e.target.value);
-                  if (errorMessage) setErrorMessage(null);
-                }}
-                placeholder="เช่น 3/9/2569 11:30:00"
-                className="w-full px-4 py-3 bg-slate-50 hover:bg-white border border-slate-300 hover:border-sky-400 rounded-xl text-base sm:text-lg font-mono text-slate-900 focus:bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none transition-all shadow-xs"
-              />
-            </div>
-
-            {/* 2. ประเภทเอกสารย่อย: Dropdown แบบมีไกด์พิมพ์ค้นหาได้ (แสดงเฉพาะผู้ให้บริการคือ ประกายมาศ) */}
-            {isPrakaymas && (
-              <SearchableCombobox
-                label="ประเภทเอกสารย่อย"
-                value={subType}
-                onChange={(val) => {
-                  setSubType(val);
-                  if (errorMessage) setErrorMessage(null);
-                }}
-                options={SUB_TYPE_OPTIONS}
-                placeholder="เลือกหรือพิมพ์ค้นหาประเภทเอกสารย่อย เช่น งานคืนเงินกองทุนสำรองเลี้ยงชีพ..."
-                id="subtype-combobox"
-              />
             )}
 
-            {/* 3. QA.: Dropdown แบบมีไกด์พิมพ์ค้นหาได้ */}
-            <SearchableCombobox
-              label="QA."
-              value={qa}
-              onChange={(val) => setQa(val)}
-              options={QA_OPTIONS}
-              placeholder="เลือกหรือพิมพ์ค้นหา QA เช่น 111, 211, มูลค่าต่ำ..."
-              id="qa-combobox"
-            />
+            {/* Form Fields Section Card */}
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 space-y-3.5 shadow-xs">
+              {/* Row 1: 1. วันที่ดำเนินการ & 2. QA. */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-start">
+                <div>
+                  <label className="flex items-center gap-1.5 text-slate-700 font-bold mb-1.5 text-xs sm:text-[13px] h-5 font-['Prompt','Sarabun',sans-serif]">
+                    <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 text-[10px] font-mono font-bold inline-flex items-center justify-center shrink-0">
+                      1
+                    </span>
+                    <span>วันที่ดำเนินการ</span>
+                    <span className="text-rose-500 font-bold">*</span>
+                  </label>
+                  <div className="relative flex items-center">
+                    <Clock className="w-4 h-4 text-blue-500 absolute left-3 pointer-events-none" />
+                    <input
+                      type="text"
+                      required
+                      value={actionDate}
+                      onChange={(e) => {
+                        setActionDate(e.target.value);
+                        if (errorMessage) setErrorMessage(null);
+                      }}
+                      placeholder="เช่น 18/10/2569 14:25:05"
+                      className="w-full pl-9 pr-24 py-2.5 bg-white border border-slate-300 hover:border-blue-400 rounded-xl text-xs sm:text-sm font-mono font-bold text-slate-900 focus:border-blue-500 focus:ring-3 focus:ring-blue-500/15 focus:outline-none transition-all shadow-2xs min-h-[42px]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleResetTimestamp}
+                      className="absolute right-1.5 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200/80 text-[10px] font-bold transition-colors cursor-pointer"
+                      title="ตั้งเป็นวันและเวลาปัจจุบัน"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>เวลาปัจจุบัน</span>
+                    </button>
+                  </div>
+                </div>
 
-            {/* 4. การดำเนินการ: Dropdown แบบมีไกด์พิมพ์ค้นหาได้ (เลือกแล้วสถานะต้องเป็นค่าว่าง) */}
-            <SearchableCombobox
-              label="การดำเนินการ"
-              required
-              value={action}
-              onChange={(val) => {
-                setAction(val);
-                setStatus('');
-                if (errorMessage) setErrorMessage(null);
-              }}
-              options={ACTION_OPTIONS}
-              placeholder="เลือกหรือพิมพ์ค้นหาการดำเนินการ เช่น ตรวจสอบ, บันทึกบัญชี..."
-              id="action-combobox"
-            />
+                {/* 2. QA.: Dropdown */}
+                <SearchableCombobox
+                  stepNumber="2"
+                  label="ระดับความซับซ้อน (QA.)"
+                  value={qa}
+                  onChange={(val) => setQa(val)}
+                  options={QA_OPTIONS}
+                  placeholder="เลือกหรือพิมพ์ค้นหา QA เช่น 111..."
+                  id="qa-combobox"
+                />
+              </div>
 
-            {/* 5. สถานะ: Dropdown แบบมีไกด์พิมพ์ค้นหาได้ */}
-            <SearchableCombobox
-              label="สถานะ"
-              required
-              value={status}
-              onChange={(val) => {
-                setStatus(val);
-                if (errorMessage) setErrorMessage(null);
-              }}
-              options={STATUS_OPTIONS}
-              placeholder="เลือกหรือพิมพ์ค้นหาสถานะ เช่น ถูกต้อง/ส่งต่องานจ่ายเงิน..."
-              id="status-combobox"
-            />
+              {/* ประเภทเอกสารย่อย (แสดงเฉพาะผู้ให้บริการคือ ประกายมาศ) */}
+              {isPrakaymas && (
+                <SearchableCombobox
+                  stepNumber="•"
+                  label="ประเภทเอกสารย่อย (เฉพาะโต๊ะประกายมาศ)"
+                  value={subType}
+                  onChange={(val) => {
+                    setSubType(val);
+                    if (errorMessage) setErrorMessage(null);
+                  }}
+                  options={SUB_TYPE_OPTIONS}
+                  placeholder="เลือกหรือพิมพ์ค้นหาประเภทเอกสารย่อย..."
+                  id="subtype-combobox"
+                />
+              )}
 
-            {/* 6. Group-กรณีแก้ไข: Dropdown แสดงเฉพาะกรณีเลือกสถานะที่มีคำว่า "แก้ไข" */}
-            {status.includes('แก้ไข') && (
-              <SearchableCombobox
-                label="Group-กรณีแก้ไข"
-                required
-                value={editGroup}
-                onChange={(val) => {
-                  setEditGroup(val);
-                  if (errorMessage) setErrorMessage(null);
-                }}
-                options={EDIT_GROUP_OPTIONS}
-                placeholder="เลือกหรือพิมพ์ค้นหากรณีแก้ไข เช่น เอกสารไม่ถูกต้อง..."
-                id="edit-group-combobox"
-              />
-            )}
+              {/* Row 2: 3. การดำเนินการ & 4. สถานะ */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-start">
+                <SearchableCombobox
+                  stepNumber="3"
+                  label="การดำเนินการ"
+                  required
+                  value={action}
+                  onChange={(val) => {
+                    setAction(val);
+                    setStatus('');
+                    if (errorMessage) setErrorMessage(null);
+                  }}
+                  options={ACTION_OPTIONS}
+                  placeholder="เลือกการดำเนินการ..."
+                  id="action-combobox"
+                />
 
-            {/* 7. หมายเหตุ: ช่องพิมพ์ข้อความ (Textarea/Input) */}
-            <div>
-              <label className="block text-slate-800 font-bold mb-1.5 text-base sm:text-lg">
-                หมายเหตุ
-              </label>
-              <textarea
-                rows={3}
-                value={editDetail}
-                onChange={(e) => setEditDetail(e.target.value)}
-                placeholder="ระบุหมายเหตุ เอกสารที่ต้องแนบเพิ่ม หรือข้อมูลที่ต้องปรับปรุง..."
-                className="w-full px-4 py-3 bg-slate-50 hover:bg-white border border-slate-300 hover:border-sky-400 rounded-xl text-base sm:text-lg text-slate-900 focus:bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none transition-all shadow-xs resize-none"
-              />
+                <SearchableCombobox
+                  stepNumber="4"
+                  label="สถานะผลการตรวจ"
+                  required
+                  highlightStatus
+                  value={status}
+                  onChange={(val) => {
+                    setStatus(val);
+                    if (errorMessage) setErrorMessage(null);
+                  }}
+                  options={STATUS_OPTIONS}
+                  placeholder="เลือกสถานะผลการตรวจ..."
+                  id="status-combobox"
+                />
+              </div>
+
+              {/* Group-กรณีแก้ไข: แสดงเฉพาะกรณีเลือกสถานะที่มีคำว่า "แก้ไข" */}
+              {status.includes('แก้ไข') && (
+                <div className="p-3 rounded-xl bg-rose-50/70 border border-rose-200 animate-in fade-in duration-150">
+                  <SearchableCombobox
+                    stepNumber="!"
+                    label="Group-กรณีแก้ไข (บังคับระบุเมื่อส่งแก้ไข)"
+                    required
+                    value={editGroup}
+                    onChange={(val) => {
+                      setEditGroup(val);
+                      if (errorMessage) setErrorMessage(null);
+                    }}
+                    options={EDIT_GROUP_OPTIONS}
+                    placeholder="เลือกสาเหตุการส่งแก้ไข..."
+                    id="edit-group-combobox"
+                  />
+                </div>
+              )}
+
+              {/* 5. หมายเหตุ */}
+              <div>
+                <label className="flex items-center gap-1.5 text-slate-700 font-bold mb-1.5 text-xs sm:text-[13px] h-5 font-['Prompt','Sarabun',sans-serif]">
+                  <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 text-[10px] font-mono font-bold inline-flex items-center justify-center shrink-0">
+                    5
+                  </span>
+                  <MessageSquareText className="w-3.5 h-3.5 text-slate-400" />
+                  <span>หมายเหตุ / รายละเอียดเพิ่มเติม</span>
+                </label>
+                <textarea
+                  rows={2}
+                  value={editDetail}
+                  onChange={(e) => setEditDetail(e.target.value)}
+                  placeholder="ระบุหมายเหตุ เอกสารที่ต้องแนบเพิ่ม หรือข้อมูลที่ต้องปรับปรุง (ถ้ามี)..."
+                  className="w-full px-3.5 py-2 bg-slate-50/50 hover:bg-white border border-slate-200 hover:border-blue-400 rounded-xl text-xs sm:text-sm text-slate-900 focus:bg-white focus:border-blue-500 focus:ring-3 focus:ring-blue-500/15 focus:outline-none transition-all shadow-2xs resize-none"
+                />
+              </div>
             </div>
 
             {/* แสดงข้อความแจ้งเตือนเมื่อยังกรอกข้อมูลบังคับไม่ครบถ้วน */}
             {errorMessage && (
-              <div className="p-4 bg-rose-50 border border-rose-300 text-rose-800 rounded-xl text-base font-bold flex items-center gap-3 shadow-xs animate-in fade-in duration-200">
-                <AlertCircle className="w-6 h-6 text-rose-600 shrink-0" />
+              <div className="p-3 bg-rose-50 border border-rose-300 text-rose-800 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 shadow-2xs animate-in fade-in duration-200">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
                 <span>{errorMessage}</span>
               </div>
             )}
           </div>
 
           {/* Modal Footer */}
-          <div className="px-8 py-5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-6 py-3 rounded-xl text-base font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 transition-colors cursor-pointer shadow-xs"
-            >
-              ยกเลิก
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl text-base sm:text-lg font-bold text-white bg-sky-600 hover:bg-sky-700 active:bg-sky-800 transition-colors shadow-md cursor-pointer disabled:opacity-50 font-['Prompt','Sarabun',sans-serif]"
-            >
-              <Save className="w-5 h-5" />
-              <span>{isSaving ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}</span>
-            </button>
+          <div className="px-5 py-3 bg-white border-t border-slate-200 flex flex-wrap items-center justify-between gap-2.5">
+            {isConfirmingClear ? (
+              <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl">
+                <span className="text-xs font-bold text-rose-800">ยืนยันล้างค่าเป็นว่าง?</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!selectedDoc) return;
+                    const cleared: DocumentItem = {
+                      ...selectedDoc,
+                      actionDate: '',
+                      subType: '',
+                      qa: '',
+                      action: '',
+                      status: '',
+                      editGroup: '',
+                      editDetail: '',
+                    };
+                    setIsConfirmingClear(false);
+                    onSave(cleared);
+                    onClose();
+                  }}
+                  className="px-2.5 py-1 rounded-lg text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition-colors cursor-pointer"
+                >
+                  ยืนยันล้างค่าว่าง
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmingClear(false)}
+                  className="px-2 py-1 rounded-lg text-xs font-semibold text-slate-600 hover:bg-white transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsConfirmingClear(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
+                title="ล้างข้อมูลผลการตรวจจ่ายที่เคยบันทึกไว้ให้กลับเป็นค่าว่างเหมือนเดิม"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>ล้างข้อมูลเป็นค่าว่าง</span>
+              </button>
+            )}
+
+            <div className="flex items-center justify-end gap-2.5 ml-auto">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200/80 transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 active:scale-[0.99] transition-all shadow-md shadow-blue-500/20 cursor-pointer disabled:opacity-50 font-['Prompt','Sarabun',sans-serif]"
+              >
+                <Save className="w-4 h-4" />
+                <span>{isSaving ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}</span>
+              </button>
+            </div>
           </div>
         </form>
       </div>

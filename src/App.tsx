@@ -13,6 +13,7 @@ import { Navbar } from './components/Navbar';
 import { DepartmentTabs } from './components/DepartmentTabs';
 import { StatsBar } from './components/StatsBar';
 import { DocumentCard } from './components/DocumentCard';
+import { DocumentTable } from './components/DocumentTable';
 import { HistoryModal } from './components/HistoryModal';
 import { EditDocumentModal } from './components/EditDocumentModal';
 import { InspectionRecordModal } from './components/InspectionRecordModal';
@@ -26,6 +27,7 @@ import { GasCodeModal } from './components/GasCodeModal';
 import { LoginModal } from './components/LoginModal';
 import { ReportDashboard } from './components/ReportDashboard';
 import { initAuth, logout } from './services/authService';
+import { supabase, SUPABASE_TABLE } from './services/supabaseClient';
 import { INITIAL_SHEET_ID } from './data/initialData';
 import { parseThaiDate } from './utils/workingDays';
 import { FileSearch, FolderX, CheckCircle, RefreshCw, ClipboardCheck, Inbox } from 'lucide-react';
@@ -45,9 +47,17 @@ export default function App() {
   const [gasUrl, setGasUrl] = useState<string>(getStoredGasUrl());
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<'CARDS' | 'REPORT'>('CARDS');
+  const [displayMode, setDisplayMode] = useState<'CARD' | 'TABLE'>(() => {
+    return (localStorage.getItem('document_tracker_display_mode') as 'CARD' | 'TABLE') || 'CARD';
+  });
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     return (localStorage.getItem('document_tracker_theme') as 'light' | 'dark') || 'light';
   });
+
+  const handleDisplayModeChange = (mode: 'CARD' | 'TABLE') => {
+    setDisplayMode(mode);
+    localStorage.setItem('document_tracker_display_mode', mode);
+  };
 
   const handleToggleTheme = (newTheme: 'light' | 'dark') => {
     setTheme(newTheme);
@@ -107,78 +117,25 @@ export default function App() {
     }, 3500);
   };
 
-  // Initial Load: Fetch live directly from Google Sheet DATA as primary source of truth
+  // Initial Load: Fetch live directly from Supabase ("2570-ระบบติดตามเอกสาร") as primary source of truth
   const loadData = useCallback(async (showNotice = false) => {
     setIsLoading(true);
     try {
       const liveData = await fetchFromGoogleSheet();
-      setDocuments((prevDocs) => {
-        // Merge with existing local state for review & finance fields by exact rowId / id in case Google Sheets hasn't finished propagating
-        const merged = liveData.map((liveItem) => {
-          const prevItem = prevDocs.find(
-            (p) =>
-              p.id === liveItem.id ||
-              (p.rowId && liveItem.rowId && Number(p.rowId) === Number(liveItem.rowId))
-          );
-          if (!prevItem) return liveItem;
-          return {
-            ...liveItem,
-            // งานตรวจจ่าย (คอลัมน์ S:Y): ประเภทเอกสารย่อย (S) สำหรับประกายมาศ, QA (T) สำหรับ QA
-            subType: (liveItem.providerFinal?.includes('ประกายมาศ') || liveItem.providerAuto?.includes('ประกายมาศ'))
-              ? (liveItem.subType?.trim() || prevItem.subType?.trim() || '')
-              : '',
-            qa: liveItem.qa?.trim() || prevItem.qa?.trim() || (!liveItem.providerFinal?.includes('ประกายมาศ') ? (liveItem.subType?.trim() || prevItem.subType?.trim() || '') : ''),
-            actionDate: liveItem.actionDate?.trim() || prevItem.actionDate?.trim() || '',
-            action: liveItem.action?.trim() || prevItem.action?.trim() || '',
-            status: liveItem.status?.trim() || prevItem.status?.trim() || '',
-            editGroup: liveItem.editGroup?.trim() || prevItem.editGroup?.trim() || '',
-            editDetail: liveItem.editDetail?.trim() || prevItem.editDetail?.trim() || '',
-            returnStatus: liveItem.returnStatus?.trim() || prevItem.returnStatus?.trim() || '',
-
-            reviewReceiveDate: liveItem.reviewReceiveDate?.trim() || prevItem.reviewReceiveDate?.trim() || '',
-            reviewProvider: liveItem.reviewProvider?.trim() || prevItem.reviewProvider?.trim() || '',
-            reviewActionDate: liveItem.reviewActionDate?.trim() || prevItem.reviewActionDate?.trim() || '',
-            reviewStatus: liveItem.reviewStatus?.trim() || prevItem.reviewStatus?.trim() || '',
-            reviewEditType: liveItem.reviewEditType?.trim() || prevItem.reviewEditType?.trim() || '',
-            reviewEditDetail: liveItem.reviewEditDetail?.trim() || prevItem.reviewEditDetail?.trim() || '',
-            financeReceiveDate: liveItem.financeReceiveDate?.trim() || prevItem.financeReceiveDate?.trim() || '',
-            financePaymentType: liveItem.financePaymentType?.trim() || prevItem.financePaymentType?.trim() || '',
-            financePreparer: liveItem.financePreparer?.trim() || prevItem.financePreparer?.trim() || '',
-            financeUrgentCheck: liveItem.financeUrgentCheck?.trim() || prevItem.financeUrgentCheck?.trim() || '',
-            financeActionDate: liveItem.financeActionDate?.trim() || prevItem.financeActionDate?.trim() || '',
-            financeReviewDate: liveItem.financeReviewDate?.trim() || prevItem.financeReviewDate?.trim() || '',
-            disbursementDate: liveItem.disbursementDate?.trim() || prevItem.disbursementDate?.trim() || '',
-            disbursementPayer: liveItem.disbursementPayer?.trim() || prevItem.disbursementPayer?.trim() || '',
-            disbursementNotifyDate: liveItem.disbursementNotifyDate?.trim() || prevItem.disbursementNotifyDate?.trim() || '',
-            disbursementActivityStartDate: liveItem.disbursementActivityStartDate?.trim() || prevItem.disbursementActivityStartDate?.trim() || '',
-            disbursementActivityEndDate: liveItem.disbursementActivityEndDate?.trim() || prevItem.disbursementActivityEndDate?.trim() || '',
-            financeIssueDate: liveItem.financeIssueDate?.trim() || prevItem.financeIssueDate?.trim() || '',
-            financeIssueDetail: liveItem.financeIssueDetail?.trim() || prevItem.financeIssueDetail?.trim() || '',
-            budgetActionDate: liveItem.budgetActionDate?.trim() || prevItem.budgetActionDate?.trim() || '',
-            budgetFR: liveItem.budgetFR?.trim() || prevItem.budgetFR?.trim() || '',
-            budgetFC: liveItem.budgetFC?.trim() || prevItem.budgetFC?.trim() || '',
-            budgetPR: liveItem.budgetPR?.trim() || prevItem.budgetPR?.trim() || '',
-            budgetStatus: liveItem.budgetStatus?.trim() || prevItem.budgetStatus?.trim() || '',
-            budgetReceiveDate: liveItem.budgetReceiveDate?.trim() || prevItem.budgetReceiveDate?.trim() || '',
-            budgetCoverDate: liveItem.budgetCoverDate?.trim() || prevItem.budgetCoverDate?.trim() || '',
-            budgetDocSetDate: liveItem.budgetDocSetDate?.trim() || prevItem.budgetDocSetDate?.trim() || '',
-          };
-        });
-        saveLocalDocuments(merged);
-        return merged;
-      });
+      setDocuments(liveData);
+      saveLocalDocuments(liveData);
       if (showNotice) {
-        showToast(`✅ ซิงค์ข้อมูลล่าสุดจาก Google Sheet เรียบร้อยแล้ว (${liveData.length} รายการ)`);
+        showToast(`✅ ซิงค์ข้อมูลล่าสุดจาก Supabase เรียบร้อยแล้ว (${liveData.length} รายการ)`);
       }
     } catch (err) {
-      console.warn('Could not fetch live from Google Sheets, using local/cached data:', err);
+      console.warn('Could not fetch live from Supabase, using local/cached data:', err);
       setDocuments((prev) => {
         if (prev && prev.length > 0) return prev;
         const fallback = getLocalDocuments();
         return fallback && fallback.length > 0 ? fallback : prev;
       });
       if (showNotice) {
-        showToast('⚠️ ไม่สามารถเชื่อมต่อ Google Sheet ได้ กำลังใช้ข้อมูลสำรอง');
+        showToast('⚠️ ไม่สามารถเชื่อมต่อ Supabase ได้ กำลังใช้ข้อมูลสำรอง');
       }
     } finally {
       setIsLoading(false);
@@ -200,19 +157,32 @@ export default function App() {
       }
     });
 
+    // Subscribe to Supabase Realtime updates on table "2570-ระบบติดตามเอกสาร"
+    const channel = supabase
+      .channel('doc-tracker-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: SUPABASE_TABLE },
+        () => {
+          loadData();
+        }
+      )
+      .subscribe();
+
     // Auto-sync whenever user focuses back to the tab
     const handleFocus = () => {
       loadData();
     };
     window.addEventListener('focus', handleFocus);
 
-    // Periodic sync every 15 seconds so Google Sheet changes reflect automatically
+    // Periodic sync every 15 seconds so database changes reflect automatically
     const timer = setInterval(() => {
       loadData();
     }, 15000);
 
     return () => {
       unsubscribeAuth();
+      supabase.removeChannel(channel);
       window.removeEventListener('focus', handleFocus);
       clearInterval(timer);
     };
@@ -321,44 +291,6 @@ export default function App() {
     return true;
   }, []);
 
-  // Department counts & statistics
-  const counts = useMemo(() => {
-    const c: Record<string, number> = {
-      งานตรวจจ่าย: 0,
-      งานสอบทาน: 0,
-      งานการเงิน: 0,
-      งานงบประมาณ: 0,
-      ALL: 0,
-      multiRound: 0,
-    };
-
-    groupedDocuments.forEach((doc) => {
-      c.ALL = (c.ALL || 0) + 1;
-      const isReviewFinal = isReviewProviderFinal(doc.latestRound?.providerFinal) || doc.rounds.some((r) => isReviewProviderFinal(r.providerFinal));
-
-      if (doc.department && c[doc.department] !== undefined) {
-        if (doc.department === 'งานตรวจจ่าย' && isReviewFinal) {
-          // หากผู้ให้บริการ Final เป็นงานสอบทาน ไม่ต้องนับ/แสดงในหน้างานตรวจ
-        } else {
-          c[doc.department] = (c[doc.department] || 0) + 1;
-        }
-      }
-      if (isDocInReview(doc) && doc.department !== 'งานสอบทาน') {
-        c['งานสอบทาน'] = (c['งานสอบทาน'] || 0) + 1;
-      }
-      if (isDocInFinance(doc) && doc.department !== 'งานการเงิน') {
-        c['งานการเงิน'] = (c['งานการเงิน'] || 0) + 1;
-      }
-      if (doc.totalRounds > 1) {
-        c.multiRound = (c.multiRound || 0) + 1;
-      }
-    });
-
-    // งานงบประมาณ: งานทุกประเภทที่เข้ามาในระบบสามารถบันทึกได้
-    c['งานงบประมาณ'] = groupedDocuments.length;
-
-    return c;
-  }, [groupedDocuments, isDocInReview, isDocInFinance, isDocInBudget]);
 
   // List of unique providers available in current dataset
   const availableProviders = useMemo(() => {
@@ -394,28 +326,33 @@ export default function App() {
   }, [documents]);
 
   // Deduplicated documents for current department & provider (แสดงเฉพาะรอบล่าสุดหากเลขทะเบียนรับเดียวกันเข้ามาหลายรอบ)
-  const currentDeptDeduplicatedDocs = useMemo(() => {
+  const getDeptDedupedDocs = useCallback((dept: DepartmentType | 'ALL') => {
     const deptDocs = groupedDocuments.filter((doc) => {
       // 1. Department Filter
-      if (currentDept === 'งานสอบทาน') {
+      if (dept === 'งานสอบทาน') {
         if (!isDocInReview(doc)) return false;
-      } else if (currentDept === 'งานการเงิน') {
+      } else if (dept === 'งานการเงิน') {
         if (!isDocInFinance(doc)) return false;
-      } else if (currentDept === 'งานงบประมาณ') {
+      } else if (dept === 'งานงบประมาณ') {
         if (!isDocInBudget(doc)) return false;
-      } else if (currentDept === 'งานตรวจจ่าย') {
-        const isReviewFinal = isReviewProviderFinal(doc.latestRound?.providerFinal) || doc.rounds.some((r) => isReviewProviderFinal(r.providerFinal));
+      } else if (dept === 'งานตรวจจ่าย') {
+        const lr = doc.latestRound;
+        const p = lr?.providerFinal?.trim() || lr?.providerChange?.trim() || lr?.providerAuto?.trim() || '';
+        // หน้างานตรวจจ่าย จะเป็นเอกสารทุกประเภท ยกเว้น งานเบิกจ่ายเงิน
+        if (p === 'งานเบิกจ่ายเงิน' || p.includes('งานเบิกจ่ายเงิน')) return false;
+        if (lr?.docType?.trim() === 'งานเบิกจ่ายเงิน' || lr?.docType?.includes('งานเบิกจ่ายเงิน')) return false;
+        const isReviewFinal = isReviewProviderFinal(lr?.providerFinal) || doc.rounds.some((r) => isReviewProviderFinal(r.providerFinal));
         if (isReviewFinal) return false;
         if (doc.department !== 'งานตรวจจ่าย') return false;
-      } else if (currentDept !== 'ALL' && doc.department !== currentDept) {
+      } else if (dept !== 'ALL' && doc.department !== dept) {
         return false;
       }
 
       // 2. Provider filter (ผู้ให้บริการ)
       if (selectedProvider !== 'ALL') {
-        const p = currentDept === 'งานสอบทาน' && doc.latestRound.reviewProvider?.trim()
+        const p = dept === 'งานสอบทาน' && doc.latestRound.reviewProvider?.trim()
           ? doc.latestRound.reviewProvider.trim()
-          : currentDept === 'งานการเงิน' && (doc.latestRound.financePreparer?.trim() || doc.latestRound.disbursementPayer?.trim())
+          : dept === 'งานการเงิน' && (doc.latestRound.financePreparer?.trim() || doc.latestRound.disbursementPayer?.trim())
           ? (doc.latestRound.financePreparer?.trim() || doc.latestRound.disbursementPayer?.trim() || '')
           : (doc.latestRound.providerFinal?.trim() || doc.latestRound.providerChange?.trim() || doc.latestRound.providerAuto?.trim() || '');
         if (p !== selectedProvider) {
@@ -426,44 +363,16 @@ export default function App() {
       return true;
     });
 
-    // หากมีเลขทะเบียนรับเดียวกันเข้ามาหลายรอบ ให้แสดงเฉพาะรอบล่าสุด
-    const recvMap = new Map<string, GroupedDocument>();
-    const deduplicatedResult: GroupedDocument[] = [];
+    return deptDocs;
+  }, [groupedDocuments, selectedProvider, isDocInReview, isDocInFinance, isDocInBudget]);
 
-    for (const doc of deptDocs) {
-      const recv = (doc.latestRound?.receiveNo || '').trim();
-      if (recv) {
-        if (!recvMap.has(recv)) {
-          recvMap.set(recv, doc);
-          deduplicatedResult.push(doc);
-        } else {
-          const existing = recvMap.get(recv)!;
-          const existingRound = existing.latestRound?.round || 0;
-          const curRound = doc.latestRound?.round || 0;
-          const existingRow = Number(existing.latestRound?.rowId) || 0;
-          const curRow = Number(doc.latestRound?.rowId) || 0;
+  const currentDeptDeduplicatedDocs = useMemo(() => getDeptDedupedDocs(currentDept), [getDeptDedupedDocs, currentDept]);
 
-          if (curRound > existingRound || (curRound === existingRound && curRow > existingRow)) {
-            const idx = deduplicatedResult.indexOf(existing);
-            if (idx !== -1) {
-              deduplicatedResult[idx] = doc;
-            }
-            recvMap.set(recv, doc);
-          }
-        }
-      } else {
-        deduplicatedResult.push(doc);
-      }
-    }
-
-    return deduplicatedResult;
-  }, [groupedDocuments, currentDept, selectedProvider, isDocInReview, isDocInFinance, isDocInBudget]);
-
-  // Base filtered documents for current department & general filters (ก่อนแยกตาม workStatusFilter)
-  const baseFilteredDocs = useMemo(() => {
+  // ตัวกรองทั่วไป (ค้นหา, ช่วงเวลา, ประเภท ฯลฯ) ใช้ร่วมกันทั้งรายการเอกสารและตัวเลขบนแท็บฝ่ายงาน
+  const applyGeneralFilters = useCallback((docs: GroupedDocument[]) => {
     const q = searchQuery.toLowerCase().trim();
 
-    return currentDeptDeduplicatedDocs.filter((doc) => {
+    return docs.filter((doc) => {
       // 1. Multi-round only filter
       if (multiRoundOnly && doc.totalRounds <= 1) {
         return false;
@@ -568,7 +477,30 @@ export default function App() {
 
       return true;
     });
-  }, [currentDeptDeduplicatedDocs, multiRoundOnly, returnStatusFilter, searchQuery, timeFilter, customDate, selectedDocTypes]);
+  }, [multiRoundOnly, returnStatusFilter, searchQuery, timeFilter, customDate, selectedDocTypes]);
+
+  // Base filtered documents for current department & general filters (ก่อนแยกตาม workStatusFilter)
+  const baseFilteredDocs = useMemo(
+    () => applyGeneralFilters(currentDeptDeduplicatedDocs),
+    [applyGeneralFilters, currentDeptDeduplicatedDocs]
+  );
+
+  // ตัวเลขบนแท็บฝ่ายงาน: ใช้ขั้นตอนเดียวกับรายการเอกสาร (กรอง + ตัดซ้ำเลขทะเบียนรับ) เพื่อให้ตัวเลขตรงกันทุกจุด
+  const counts = useMemo(() => {
+    const c: Record<string, number> = {
+      งานตรวจจ่าย: 0,
+      งานสอบทาน: 0,
+      งานการเงิน: 0,
+      งานงบประมาณ: 0,
+      ALL: 0,
+      multiRound: 0,
+    };
+    (['งานตรวจจ่าย', 'งานสอบทาน', 'งานการเงิน', 'งานงบประมาณ', 'ALL'] as const).forEach((d) => {
+      c[d] = applyGeneralFilters(getDeptDedupedDocs(d)).length;
+    });
+    c.multiRound = groupedDocuments.filter((doc) => doc.totalRounds > 1).length;
+    return c;
+  }, [applyGeneralFilters, getDeptDedupedDocs, groupedDocuments]);
 
   // Counts for work status (1.เอกสารที่เข้ามาทั้งหมด = 2.บันทึกรับแล้ว + 3.ดำเนินการแล้ว + 4.งานค้างในมือ)
   const workStatusCounts = useMemo(() => {
@@ -826,18 +758,18 @@ export default function App() {
     });
 
     const docIdentifier = updatedItem.docNo || updatedItem.receiveNo || updatedItem.docRef || `แถว ${updatedItem.rowId}`;
-    showToast(`⏳ กำลังบันทึกข้อมูลเอกสาร ${docIdentifier} เข้า Google Sheet โดยตรง...`);
+    showToast(`⏳ กำลังบันทึกข้อมูลเอกสาร ${docIdentifier} เข้า Supabase โดยตรง...`);
     syncToGas('updateDocument', updatedItem).then((success) => {
       if (success) {
-        showToast(`✅ บันทึกข้อมูลเอกสาร ${docIdentifier} ลง Google Sheet สำเร็จ`);
-        setTimeout(() => loadData(), 1200);
+        showToast(`✅ บันทึกข้อมูลเอกสาร ${docIdentifier} ลง Supabase สำเร็จ`);
+        setTimeout(() => loadData(), 800);
       } else {
-        showToast(`⚠️ บันทึกลง Google Sheet ไม่สำเร็จ (บันทึกข้อมูลในระบบชั่วคราวแล้ว)`);
+        showToast(`⚠️ บันทึกลง Supabase ไม่สำเร็จ (บันทึกข้อมูลในระบบชั่วคราวแล้ว)`);
       }
     });
   };
 
-  // Handle Save Review (บันทึกข้อมูลของงานสอบทาน บันทึกลง Google Sheet หน้า "DATA" ช่อง Y:AD)
+  // Handle Save Review (บันทึกข้อมูลของงานสอบทาน บันทึกลง Supabase ตาราง "2570-ระบบติดตามเอกสาร")
   const handleSaveReview = (updatedItem: DocumentItem) => {
     setDocuments((prev) => {
       const next = prev.map((item) => {
@@ -854,18 +786,18 @@ export default function App() {
     });
 
     const docIdentifier = updatedItem.docNo || updatedItem.receiveNo || updatedItem.docRef || `แถว ${updatedItem.rowId}`;
-    showToast(`⏳ กำลังบันทึกข้อมูลงานสอบทาน ${docIdentifier} ลง Google Sheet (DATA ช่อง Y:AD)...`);
+    showToast(`⏳ กำลังบันทึกข้อมูลงานสอบทาน ${docIdentifier} ลง Supabase...`);
     syncToGas('updateReview', updatedItem).then((success) => {
       if (success) {
-        showToast(`✅ บันทึกข้อมูลงานสอบทาน ${docIdentifier} ลง Google Sheet (ช่อง Y:AD) สำเร็จ`);
-        setTimeout(() => loadData(), 1200);
+        showToast(`✅ บันทึกข้อมูลงานสอบทาน ${docIdentifier} ลง Supabase สำเร็จ`);
+        setTimeout(() => loadData(), 800);
       } else {
-        showToast(`⚠️ บันทึกลง Google Sheet ไม่สำเร็จ (บันทึกข้อมูลในระบบชั่วคราวแล้ว)`);
+        showToast(`⚠️ บันทึกลง Supabase ไม่สำเร็จ (บันทึกข้อมูลในระบบชั่วคราวแล้ว)`);
       }
     });
   };
 
-  // Handle Save Finance (บันทึกข้อมูลของงานการเงิน บันทึกลง Google Sheet หน้า "DATA" ช่อง AE:AQ)
+  // Handle Save Finance (บันทึกข้อมูลของงานการเงิน บันทึกลง Supabase ตาราง "2570-ระบบติดตามเอกสาร")
   const handleSaveFinance = async (updatedItem: DocumentItem) => {
     setDocuments((prev) => {
       const next = prev.map((item) => {
@@ -882,19 +814,19 @@ export default function App() {
     });
 
     const docIdentifier = updatedItem.docNo || updatedItem.receiveNo || updatedItem.docRef || `แถว ${updatedItem.rowId}`;
-    showToast(`⏳ กำลังบันทึกข้อมูลงานการเงิน ${docIdentifier} ลง Google Sheet (DATA ช่อง AE:AQ)...`);
+    showToast(`⏳ กำลังบันทึกข้อมูลงานการเงิน ${docIdentifier} ลง Supabase...`);
     const success = await syncToGas('updateFinance', updatedItem);
     if (success) {
-      showToast(`✅ บันทึกข้อมูลงานการเงิน ${docIdentifier} ลง Google Sheet (ช่อง AE:AQ) สำเร็จ`);
-      setTimeout(() => loadData(), 1200);
+      showToast(`✅ บันทึกข้อมูลงานการเงิน ${docIdentifier} ลง Supabase สำเร็จ`);
+      setTimeout(() => loadData(), 800);
       return true;
     } else {
-      showToast(`⚠️ บันทึกลง Google Sheet ไม่สำเร็จ (บันทึกข้อมูลในระบบชั่วคราวแล้ว)`);
+      showToast(`⚠️ บันทึกลง Supabase ไม่สำเร็จ (บันทึกข้อมูลในระบบชั่วคราวแล้ว)`);
       return false;
     }
   };
 
-  // Handle Save Budget (บันทึกข้อมูลของงานงบประมาณ บันทึกลง Google Sheet หน้า "DATA" ช่อง AR:AY)
+  // Handle Save Budget (บันทึกข้อมูลของงานงบประมาณ บันทึกลง Supabase ตาราง "2570-ระบบติดตามเอกสาร")
   const handleSaveBudget = async (updatedItem: DocumentItem) => {
     setDocuments((prev) => {
       const next = prev.map((item) => {
@@ -911,15 +843,94 @@ export default function App() {
     });
 
     const docIdentifier = updatedItem.docNo || updatedItem.receiveNo || updatedItem.docRef || `แถว ${updatedItem.rowId}`;
-    showToast(`⏳ กำลังบันทึกข้อมูลงานงบประมาณ ${docIdentifier} ลง Google Sheet (DATA ช่อง AR:AY)...`);
+    showToast(`⏳ กำลังบันทึกข้อมูลงานงบประมาณ ${docIdentifier} ลง Supabase...`);
     const success = await syncToGas('updateBudget', updatedItem);
     if (success) {
-      showToast(`✅ บันทึกข้อมูลงานงบประมาณ ${docIdentifier} ลง Google Sheet (ช่อง AR:AY) สำเร็จ`);
-      setTimeout(() => loadData(), 1200);
+      showToast(`✅ บันทึกข้อมูลงานงบประมาณ ${docIdentifier} ลง Supabase สำเร็จ`);
+      setTimeout(() => loadData(), 800);
       return true;
     } else {
-      showToast(`⚠️ บันทึกลง Google Sheet ไม่สำเร็จ (บันทึกข้อมูลในระบบชั่วคราวแล้ว)`);
+      showToast(`⚠️ บันทึกลง Supabase ไม่สำเร็จ (บันทึกข้อมูลในระบบชั่วคราวแล้ว)`);
       return false;
+    }
+  };
+
+  // Handle Clear Recorded Data (ล้างข้อมูลที่เคยบันทึกไปให้เป็นค่าว่างเหมือนเดิม)
+  const handleClearRecord = (
+    item: DocumentItem,
+    dept: DepartmentType | 'ALL' = currentDept,
+    scope: 'all' | 'review_status_only' = 'all'
+  ) => {
+    const targetDept = dept === 'ALL' ? item.department : dept;
+    const docIdentifier = item.docNo || item.receiveNo || item.docRef || `แถว ${item.rowId}`;
+
+    if (targetDept === 'งานสอบทาน') {
+      const cleared: DocumentItem =
+        scope === 'review_status_only'
+          ? {
+              ...item,
+              reviewActionDate: '',
+              reviewStatus: '',
+              reviewEditType: '',
+              reviewEditDetail: '',
+            }
+          : {
+              ...item,
+              reviewReceiveDate: '',
+              reviewProvider: '',
+              reviewActionDate: '',
+              reviewStatus: '',
+              reviewEditType: '',
+              reviewEditDetail: '',
+            };
+      handleSaveReview(cleared);
+      showToast(`🗑️ ล้างข้อมูลงานสอบทานของเอกสาร ${docIdentifier} เป็นค่าว่างเรียบร้อยแล้ว`);
+    } else if (targetDept === 'งานการเงิน') {
+      const cleared: DocumentItem = {
+        ...item,
+        financeReceiveDate: '',
+        financePaymentType: '',
+        financePreparer: '',
+        financeUrgentCheck: '',
+        financeActionDate: '',
+        financeReviewDate: '',
+        disbursementDate: '',
+        disbursementPayer: '',
+        disbursementNotifyDate: '',
+        disbursementActivityStartDate: '',
+        disbursementActivityEndDate: '',
+        financeIssueDate: '',
+        financeIssueDetail: '',
+      };
+      handleSaveFinance(cleared);
+      showToast(`🗑️ ล้างข้อมูลงานการเงินของเอกสาร ${docIdentifier} เป็นค่าว่างเรียบร้อยแล้ว`);
+    } else if (targetDept === 'งานงบประมาณ') {
+      const cleared: DocumentItem = {
+        ...item,
+        budgetActionDate: '',
+        budgetFR: '',
+        budgetFC: '',
+        budgetPR: '',
+        budgetStatus: '',
+        budgetReceiveDate: '',
+        budgetCoverDate: '',
+        budgetDocSetDate: '',
+      };
+      handleSaveBudget(cleared);
+      showToast(`🗑️ ล้างข้อมูลงานงบประมาณของเอกสาร ${docIdentifier} เป็นค่าว่างเรียบร้อยแล้ว`);
+    } else {
+      const cleared: DocumentItem = {
+        ...item,
+        actionDate: '',
+        subType: '',
+        qa: '',
+        action: '',
+        status: '',
+        editGroup: '',
+        editDetail: '',
+      };
+      handleSaveEdit(cleared);
+      showToast(`🗑️ ล้างข้อมูลผลการตรวจจ่ายของเอกสาร ${docIdentifier} เป็นค่าว่างเรียบร้อยแล้ว`);
     }
   };
 
@@ -949,19 +960,19 @@ export default function App() {
 
     if (targetItems.length === 0) return;
 
-    showToast(`⏳ กำลังบันทึกรับเอกสาร ${targetItems.length} ชุดลง Google Sheet...`);
+    showToast(`⏳ กำลังบันทึกรับเอกสาร ${targetItems.length} ชุดลง Supabase...`);
     try {
       const res = await batchSaveToGoogleSheet(targetItems);
       if (res.success) {
-        showToast(`✅ บันทึกรับเอกสาร ${targetItems.length} ชุดลง Google Sheet เรียบร้อยแล้ว`);
+        showToast(`✅ บันทึกรับเอกสาร ${targetItems.length} ชุดลง Supabase เรียบร้อยแล้ว`);
       } else {
-        showToast(`⚠️ บันทึกลง Google Sheet บางส่วนสำเร็จ (บันทึกข้อมูลในระบบเรียบร้อยแล้ว)`);
+        showToast(`⚠️ บันทึกลง Supabase บางส่วนสำเร็จ (บันทึกข้อมูลในระบบเรียบร้อยแล้ว)`);
       }
     } catch (err) {
       console.error('Batch save error:', err);
       showToast(`✅ บันทึกรับเอกสาร ${targetItems.length} ชุดในระบบเรียบร้อยแล้ว`);
     } finally {
-      setTimeout(() => loadData(), 1200);
+      setTimeout(() => loadData(), 800);
     }
   };
 
@@ -977,13 +988,13 @@ export default function App() {
     const action = isRound ? 'addRound' : 'createDocument';
     const docIdentifier = newItem.docNo || newItem.receiveNo || newItem.docRef || 'เอกสารใหม่';
 
-    showToast(`⏳ กำลังบันทึกข้อมูล ${docIdentifier} เข้า Google Sheet โดยตรง...`);
+    showToast(`⏳ กำลังบันทึกข้อมูล ${docIdentifier} เข้า Supabase โดยตรง...`);
     syncToGas(action, newItem).then((success) => {
       if (success) {
         showToast(
           isRound
-            ? `✅ เพิ่มรอบใหม่ (ครั้งที่ ${newItem.round}) สำหรับเอกสาร ${newItem.docNo} ใน Google Sheet สำเร็จ`
-            : `✅ บันทึกรับเอกสารใหม่ ${newItem.docNo} เข้า Google Sheet เรียบร้อยแล้ว`
+            ? `✅ เพิ่มรอบใหม่ (ครั้งที่ ${newItem.round}) สำหรับเอกสาร ${newItem.docNo} ใน Supabase สำเร็จ`
+            : `✅ บันทึกรับเอกสารใหม่ ${newItem.docNo} เข้า Supabase เรียบร้อยแล้ว`
         );
       } else {
         showToast(`✅ บันทึกข้อมูล ${docIdentifier} ในระบบเรียบร้อยแล้ว`);
@@ -997,7 +1008,7 @@ export default function App() {
   const handleSaveGasUrl = (url: string) => {
     setStoredGasUrl(url);
     setGasUrl(url);
-    showToast('บันทึกการตั้งค่า Google Apps Script Web App URL เรียบร้อย');
+    showToast('บันทึกการตั้งค่าการเชื่อมต่อฐานข้อมูลเรียบร้อย');
   };
 
   const isDark = theme === 'dark';
@@ -1073,6 +1084,8 @@ export default function App() {
             onSelectedDocTypesChange={(types) => setSelectedDocTypes(types)}
             availableDocTypes={availableDocTypes}
             theme={theme}
+            displayMode={displayMode}
+            onDisplayModeChange={handleDisplayModeChange}
           />
 
           {/* Executive Stats Summary */}
@@ -1106,7 +1119,7 @@ export default function App() {
                     งานสอบทาน: บันทึกรับเอกสารหลายชุดพร้อมกัน
                   </h4>
                   <p className="text-xs text-pink-700">
-                    กรองประเภท ติ๊กเลือกชุดที่ได้รับ กรอกผู้ให้บริการช่องเดียว แล้วบันทึกลง Google Sheet พร้อมกันทันที
+                    กรองประเภท ติ๊กเลือกชุดที่ได้รับ กรอกผู้ให้บริการช่องเดียว แล้วบันทึกลง Supabase พร้อมกันทันที
                   </p>
                 </div>
               </div>
@@ -1178,39 +1191,67 @@ export default function App() {
             </div>
           )}
 
-          {/* Document Cards Grid (3 คอลัมน์) */}
+          {/* Document Cards Grid or Table View */}
           {filteredDocuments.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredDocuments.map((doc, idx) => (
-                <DocumentCard
-                  key={doc.latestRound?.id ? `${doc.docNo || 'doc'}-${doc.latestRound.id}` : `doc-card-${idx}-${doc.docNo}`}
-                  document={doc}
-                  currentDept={currentDept}
-                  onEdit={(item) => setEditItem(item)}
-                  onInspect={(item) => {
-                    setInspectItem(item);
-                    setIsInspectModalOpen(true);
-                  }}
-                  onReview={(item) => {
-                    setReviewItem(item);
-                    setIsReviewModalOpen(true);
-                  }}
-                  onFinance={(item) => {
-                    setFinanceItem(item);
-                    setIsFinanceModalOpen(true);
-                  }}
-                  onBudget={(item) => {
-                    setBudgetItem(item);
-                    setIsBudgetModalOpen(true);
-                  }}
-                  onViewHistory={(d) => setHistoryDoc(d)}
-                  onAddRound={(d) => {
-                    setNewDocTarget(d);
-                    setIsNewDocOpen(true);
-                  }}
-                />
-              ))}
-            </div>
+            displayMode === 'TABLE' ? (
+              <DocumentTable
+                documents={filteredDocuments}
+                currentDept={currentDept}
+                theme={theme}
+                onEdit={(item) => setEditItem(item)}
+                onInspect={(item) => {
+                  setInspectItem(item);
+                  setIsInspectModalOpen(true);
+                }}
+                onReview={(item) => {
+                  setReviewItem(item);
+                  setIsReviewModalOpen(true);
+                }}
+                onFinance={(item) => {
+                  setFinanceItem(item);
+                  setIsFinanceModalOpen(true);
+                }}
+                onBudget={(item) => {
+                  setBudgetItem(item);
+                  setIsBudgetModalOpen(true);
+                }}
+                onClearRecord={handleClearRecord}
+                onViewHistory={(d) => setHistoryDoc(d)}
+              />
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredDocuments.map((doc, idx) => (
+                  <DocumentCard
+                    key={doc.latestRound?.id ? `${doc.docNo || 'doc'}-${doc.latestRound.id}` : `doc-card-${idx}-${doc.docNo}`}
+                    document={doc}
+                    currentDept={currentDept}
+                    onEdit={(item) => setEditItem(item)}
+                    onInspect={(item) => {
+                      setInspectItem(item);
+                      setIsInspectModalOpen(true);
+                    }}
+                    onReview={(item) => {
+                      setReviewItem(item);
+                      setIsReviewModalOpen(true);
+                    }}
+                    onFinance={(item) => {
+                      setFinanceItem(item);
+                      setIsFinanceModalOpen(true);
+                    }}
+                    onBudget={(item) => {
+                      setBudgetItem(item);
+                      setIsBudgetModalOpen(true);
+                    }}
+                    onClearRecord={handleClearRecord}
+                    onViewHistory={(d) => setHistoryDoc(d)}
+                    onAddRound={(d) => {
+                      setNewDocTarget(d);
+                      setIsNewDocOpen(true);
+                    }}
+                  />
+                ))}
+              </div>
+            )
           ) : (
             <div className={`rounded-2xl border p-12 text-center my-6 shadow-2xs ${isDark ? 'bg-[#111e42] border-sky-900/60' : 'bg-white border-slate-200'}`}>
               <div className="w-14 h-14 rounded-2xl bg-slate-50 text-slate-400 flex items-center justify-center mx-auto mb-3 border border-slate-200">

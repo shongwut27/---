@@ -1,5 +1,5 @@
-import React from 'react';
-import { GroupedDocument, DocumentItem } from '../types';
+import React, { useState } from 'react';
+import { GroupedDocument, DocumentItem, DepartmentType } from '../types';
 import { calculateWorkingDays } from '../utils/workingDays';
 import {
   Building2,
@@ -18,6 +18,9 @@ import {
   Clock3,
   ClipboardCheck,
   PieChart,
+  RotateCcw,
+  Trash2,
+  X,
 } from 'lucide-react';
 
 interface DocumentCardProps {
@@ -29,6 +32,11 @@ interface DocumentCardProps {
   onReview?: (item: DocumentItem) => void;
   onFinance?: (item: DocumentItem) => void;
   onBudget?: (item: DocumentItem) => void;
+  onClearRecord?: (
+    item: DocumentItem,
+    dept: DepartmentType | 'ALL',
+    scope?: 'all' | 'review_status_only'
+  ) => void;
   currentDept?: string;
 }
 
@@ -41,8 +49,10 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
   onReview,
   onFinance,
   onBudget,
+  onClearRecord,
   currentDept,
 }) => {
+  const [isConfirmingClear, setIsConfirmingClear] = useState(false);
   const lr = document.latestRound;
   const isMultiRound = document.totalRounds > 1;
 
@@ -313,8 +323,26 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
     }
   }
 
+  const handleCardDoubleClick = () => {
+    if (isReviewDept && onReview) {
+      onReview(lr);
+    } else if (isFinanceDept && onFinance) {
+      onFinance(lr);
+    } else if (isBudgetDept && onBudget) {
+      onBudget(lr);
+    } else if (onInspect) {
+      onInspect(lr);
+    } else {
+      onEdit(lr);
+    }
+  };
+
   return (
-    <div className={cardContainerClass}>
+    <div
+      className={`${cardContainerClass} cursor-pointer`}
+      onDoubleClick={handleCardDoubleClick}
+      title="ดับเบิ้ลคลิกเพื่อเปิดหน้าต่างบันทึกผล"
+    >
       {/* Card Header */}
       <div className={cardHeaderClass}>
         {/* Top Badges Row: Dept, EP, No & Status / Round */}
@@ -447,7 +475,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
             </div>
             <div className="truncate">
               <span className="text-slate-500 font-sans font-normal mr-1">เลขที่เอกสาร:</span>
-              <span className="font-medium text-slate-800">{lr.docNo || '-'}</span>
+              <span className="font-normal text-slate-600">{lr.docNo || '-'}</span>
             </div>
           </div>
         </div>
@@ -730,85 +758,215 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2 pt-1">
-          {isInspectionDept ? (
-            /* 1. ในการ์ด เอาปุ่มแก้ไข และปุ่ม + ออก */
-            /* 2. ขยายปุ่มบันทึกข้อมูลให้เต็มการดเลย */
-            onInspect && (
-              <button
-                onClick={() => onInspect(lr)}
-                className={inspectBtnClass}
-                title="บันทึกข้อมูลผลการตรวจจ่าย (วันที่ดำเนินการ, ประเภทเอกสารย่อย, QA., การดำเนินการ, สถานะ, กรณีแก้ไข)"
-              >
-                <ClipboardCheck className="w-5 h-5" />
-                <span>บันทึกข้อมูล</span>
-              </button>
-            )
-          ) : isReviewDept ? (
-            /* สำหรับงานสอบทาน: ขยายปุ่มบันทึกข้อมูลให้เต็มการ์ดเช่นเดียวกับงานตรวจจ่าย */
-            onReview && (
-              <button
-                onClick={() => onReview(lr)}
-                className={reviewBtnClass}
-                title="บันทึกข้อมูลงานสอบทาน (การรับเอกสาร และสถานะการตรวจ)"
-              >
-                <ClipboardCheck className="w-5 h-5" />
-                <span>บันทึกข้อมูล</span>
-              </button>
-            )
-          ) : isFinanceDept ? (
-            /* สำหรับงานการเงิน: ขยายปุ่มบันทึกข้อมูลให้เต็มการ์ด */
-            onFinance && (
-              <button
-                onClick={() => onFinance(lr)}
-                className={financeBtnClass}
-                title="บันทึกข้อมูลงานการเงิน (จัดทำเช็ค/โอนเงิน และการจ่ายเงิน)"
-              >
-                <ClipboardCheck className="w-5 h-5" />
-                <span>บันทึกข้อมูลงานการเงิน</span>
-              </button>
-            )
-          ) : isBudgetDept ? (
-            /* สำหรับงานงบประมาณ: ขยายปุ่มบันทึกข้อมูลให้เต็มการ์ด */
-            onBudget && (
-              <button
-                onClick={() => onBudget(lr)}
-                className={budgetBtnClass}
-                title="บันทึกข้อมูลงานงบประมาณ (FR, FC, PR, สถานะ, วันที่ดำเนินการ)"
-              >
-                <ClipboardCheck className="w-5 h-5" />
-                <span>บันทึกข้อมูลงานงบประมาณ</span>
-              </button>
-            )
-          ) : (
-            <>
-              {isMultiRound && (
+        {/* Action Buttons & Clear Confirmation */}
+        <div className="pt-1" onDoubleClick={(e) => e.stopPropagation()}>
+          {isConfirmingClear && onClearRecord ? (
+            <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-300 shadow-xs animate-in fade-in duration-150">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="text-xs font-bold text-rose-800 flex items-center gap-1.5 font-['Prompt','Sarabun',sans-serif]">
+                  <RotateCcw className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                  <span>ต้องการล้างข้อมูลที่บันทึกให้เป็นค่าว่าง?</span>
+                </span>
                 <button
-                  onClick={() => onViewHistory(document)}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 transition-colors cursor-pointer"
+                  type="button"
+                  onClick={() => setIsConfirmingClear(false)}
+                  className="p-1 text-rose-400 hover:text-rose-700 rounded-md cursor-pointer"
+                  title="ยกเลิก"
                 >
-                  <History className="w-3.5 h-3.5 text-slate-500" />
-                  <span>ดูประวัติ</span>
+                  <X className="w-3.5 h-3.5" />
                 </button>
+              </div>
+
+              {isReviewDept && isReviewRecorded ? (
+                <div className="grid grid-cols-1 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClearRecord(lr, 'งานสอบทาน', 'review_status_only');
+                      setIsConfirmingClear(false);
+                    }}
+                    className="w-full py-1.5 px-2.5 rounded-lg text-[11px] font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 transition-colors cursor-pointer"
+                  >
+                    1. ล้างเฉพาะผลการตรวจ (คงสถานะรับเอกสารไว้)
+                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClearRecord(lr, 'งานสอบทาน', 'all');
+                        setIsConfirmingClear(false);
+                      }}
+                      className="flex-1 py-1.5 px-2.5 rounded-lg text-[11px] font-bold text-white bg-rose-600 hover:bg-rose-700 transition-colors cursor-pointer"
+                    >
+                      2. ล้างทั้งหมดเป็นค่าว่าง
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmingClear(false)}
+                      className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-slate-600 bg-white hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer"
+                    >
+                      ยกเลิก
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetDept: DepartmentType = isReviewDept
+                        ? 'งานสอบทาน'
+                        : isFinanceDept
+                        ? 'งานการเงิน'
+                        : isBudgetDept
+                        ? 'งานงบประมาณ'
+                        : 'งานตรวจจ่าย';
+                      onClearRecord(lr, targetDept, 'all');
+                      setIsConfirmingClear(false);
+                    }}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 transition-colors shadow-2xs cursor-pointer font-['Prompt','Sarabun',sans-serif]"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>ยืนยันล้างเป็นค่าว่าง</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsConfirmingClear(false)}
+                    className="px-3.5 py-2 rounded-lg text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                </div>
               )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              {isInspectionDept ? (
+                <>
+                  {onInspect && (
+                    <button
+                      onClick={() => onInspect(lr)}
+                      className={`${inspectBtnClass} flex-1`}
+                      title="บันทึกข้อมูลผลการตรวจจ่าย (วันที่ดำเนินการ, ประเภทเอกสารย่อย, QA., การดำเนินการ, สถานะ, กรณีแก้ไข)"
+                    >
+                      <ClipboardCheck className="w-5 h-5" />
+                      <span>{isRecorded ? 'แก้ไขผลที่บันทึก' : 'บันทึกข้อมูล'}</span>
+                    </button>
+                  )}
+                  {isRecorded && onClearRecord && (
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmingClear(true)}
+                      className="inline-flex items-center justify-center gap-1 px-3 py-2.5 rounded-xl text-xs font-bold text-rose-700 bg-white/95 hover:bg-rose-50 border border-rose-200 hover:border-rose-300 transition-all shadow-2xs cursor-pointer shrink-0 font-['Prompt','Sarabun',sans-serif]"
+                      title="ล้างข้อมูลผลการตรวจจ่ายที่เคยบันทึกให้เป็นค่าว่างเหมือนเดิม"
+                    >
+                      <RotateCcw className="w-4 h-4 text-rose-600" />
+                      <span>ล้างค่า</span>
+                    </button>
+                  )}
+                </>
+              ) : isReviewDept ? (
+                <>
+                  {onReview && (
+                    <button
+                      onClick={() => onReview(lr)}
+                      className={`${reviewBtnClass} flex-1`}
+                      title="บันทึกข้อมูลงานสอบทาน (การรับเอกสาร และสถานะการตรวจ)"
+                    >
+                      <ClipboardCheck className="w-5 h-5" />
+                      <span>{isReviewRecorded || isReviewReceived ? 'แก้ไขผลที่บันทึก' : 'บันทึกข้อมูล'}</span>
+                    </button>
+                  )}
+                  {(isReviewRecorded || isReviewReceived) && onClearRecord && (
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmingClear(true)}
+                      className="inline-flex items-center justify-center gap-1 px-3 py-2.5 rounded-xl text-xs font-bold text-rose-700 bg-white/95 hover:bg-rose-50 border border-rose-200 hover:border-rose-300 transition-all shadow-2xs cursor-pointer shrink-0 font-['Prompt','Sarabun',sans-serif]"
+                      title="ล้างข้อมูลงานสอบทานที่เคยบันทึกให้เป็นค่าว่างเหมือนเดิม"
+                    >
+                      <RotateCcw className="w-4 h-4 text-rose-600" />
+                      <span>ล้างค่า</span>
+                    </button>
+                  )}
+                </>
+              ) : isFinanceDept ? (
+                <>
+                  {onFinance && (
+                    <button
+                      onClick={() => onFinance(lr)}
+                      className={`${financeBtnClass} flex-1`}
+                      title="บันทึกข้อมูลงานการเงิน (จัดทำเช็ค/โอนเงิน และการจ่ายเงิน)"
+                    >
+                      <ClipboardCheck className="w-5 h-5" />
+                      <span>{isFinanceCompleted || isFinanceReceived ? 'แก้ไขข้อมูลการเงิน' : 'บันทึกข้อมูลงานการเงิน'}</span>
+                    </button>
+                  )}
+                  {(isFinanceCompleted || isFinanceReceived) && onClearRecord && (
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmingClear(true)}
+                      className="inline-flex items-center justify-center gap-1 px-3 py-2.5 rounded-xl text-xs font-bold text-rose-700 bg-white/95 hover:bg-rose-50 border border-rose-200 hover:border-rose-300 transition-all shadow-2xs cursor-pointer shrink-0 font-['Prompt','Sarabun',sans-serif]"
+                      title="ล้างข้อมูลงานการเงินที่เคยบันทึกให้เป็นค่าว่างเหมือนเดิม"
+                    >
+                      <RotateCcw className="w-4 h-4 text-rose-600" />
+                      <span>ล้างค่า</span>
+                    </button>
+                  )}
+                </>
+              ) : isBudgetDept ? (
+                <>
+                  {onBudget && (
+                    <button
+                      onClick={() => onBudget(lr)}
+                      className={`${budgetBtnClass} flex-1`}
+                      title="บันทึกข้อมูลงานงบประมาณ (FR, FC, PR, สถานะ, วันที่ดำเนินการ)"
+                    >
+                      <ClipboardCheck className="w-5 h-5" />
+                      <span>{isBudgetCompleted || isBudgetReceived ? 'แก้ไขข้อมูลงบประมาณ' : 'บันทึกข้อมูลงานงบประมาณ'}</span>
+                    </button>
+                  )}
+                  {(isBudgetCompleted || isBudgetReceived) && onClearRecord && (
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmingClear(true)}
+                      className="inline-flex items-center justify-center gap-1 px-3 py-2.5 rounded-xl text-xs font-bold text-rose-700 bg-white/95 hover:bg-rose-50 border border-rose-200 hover:border-rose-300 transition-all shadow-2xs cursor-pointer shrink-0 font-['Prompt','Sarabun',sans-serif]"
+                      title="ล้างข้อมูลงานงบประมาณที่เคยบันทึกให้เป็นค่าว่างเหมือนเดิม"
+                    >
+                      <RotateCcw className="w-4 h-4 text-rose-600" />
+                      <span>ล้างค่า</span>
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  {isMultiRound && (
+                    <button
+                      onClick={() => onViewHistory(document)}
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 transition-colors cursor-pointer"
+                    >
+                      <History className="w-3.5 h-3.5 text-slate-500" />
+                      <span>ดูประวัติ</span>
+                    </button>
+                  )}
 
-              <button
-                onClick={() => onEdit(lr)}
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 transition-colors shadow-2xs cursor-pointer"
-              >
-                <Edit3 className="w-3.5 h-3.5 text-slate-500" />
-                <span>แก้ไข</span>
-              </button>
+                  <button
+                    onClick={() => onEdit(lr)}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 transition-colors shadow-2xs cursor-pointer"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                    <span>แก้ไข</span>
+                  </button>
 
-              <button
-                onClick={() => onAddRound(document)}
-                title="บันทึกการเข้า-ออกรอบถัดไปสำหรับเอกสารฉบับนี้"
-                className="inline-flex items-center justify-center p-2 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
-            </>
+                  <button
+                    onClick={() => onAddRound(document)}
+                    title="บันทึกการเข้า-ออกรอบถัดไปสำหรับเอกสารฉบับนี้"
+                    className="inline-flex items-center justify-center p-2 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              )}
+            </div>
           )}
         </div>
       </div>

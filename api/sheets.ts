@@ -1,4 +1,25 @@
-// /api/sheets.ts - Vercel Serverless Function for Direct Google Sheets Integration
+// /api/sheets.ts - Vercel Serverless Function for Direct Supabase Integration ("2570-ระบบติดตามเอกสาร")
+const SUPABASE_URL =
+  process.env.VITE_SUPABASE_URL ||
+  'https://xuyyzwejrzhrymqhecsm.supabase.co';
+const SUPABASE_ANON_KEY =
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh1eXl6d2VqcnpocnltcWhlY3NtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzMjM2MjgsImV4cCI6MjEwNjg5OTYyOH0.NWOlOkk5l7STSG5xlq5cztjM9L-77JUgMTttsdnFcG8';
+const SUPABASE_TABLE =
+  process.env.VITE_SUPABASE_TABLE ||
+  '2570-ระบบติดตามเอกสาร';
+
+function isUuid(str?: string): boolean {
+  if (!str) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
+}
+
+function toNullable(val?: string | null): string | null {
+  if (val === undefined || val === null) return null;
+  const trimmed = String(val).trim();
+  return trimmed === '' ? null : trimmed;
+}
+
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -9,7 +30,12 @@ export default async function handler(req: any, res: any) {
   }
 
   if (req.method === 'GET') {
-    return res.status(200).json({ status: 'ok', message: 'Google Sheets API handler ready' });
+    return res.status(200).json({
+      status: 'ok',
+      message: 'Supabase API handler ready',
+      project: 'xuyyzwejrzhrymqhecsm',
+      table: SUPABASE_TABLE,
+    });
   }
 
   if (req.method !== 'POST') {
@@ -20,293 +46,179 @@ export default async function handler(req: any, res: any) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
     const { action, data } = body;
 
-    // Direct Google Sheets API update if Authorization header provided
-    const authHeader = req.headers.authorization;
-    if (authHeader) {
-      const spreadsheetId = process.env.VITE_SHEET_ID || '16wNQfdZE6sNZBsiSuRDUkqUP3FpJJh18u7TaURqzmzk';
-      const sheetName = process.env.VITE_SHEET_NAME || 'DATA';
-      const rowValues = [
-        data.ep ?? '',
-        data.no ?? '',
-        data.receiveNo ?? '',
-        data.sender ?? '',
-        data.phone ?? '',
-        data.email ?? '',
-        data.docRef ?? '',
-        data.agency ?? '',
-        data.docNo ?? '',
-        data.docType ?? '',
-        data.dateReceive ?? '',
-        data.dateDesk ?? '',
-        data.dateReturn ?? '',
-        data.returnStatus ?? '',
-        data.providerAuto ?? '',
-        data.providerChange ?? '',
-        data.providerFinal ?? '',
-        data.note ?? '',
-        data.subType ?? '',
-        data.qa ?? '',
-        data.actionDate ?? '',
-        data.action ?? '',
-        data.status ?? '',
-        data.editGroup ?? '',
-        data.editDetail ?? '',
-        data.reviewReceiveDate ?? '',
-        data.reviewProvider ?? '',
-        data.reviewActionDate ?? '',
-        data.reviewStatus ?? '',
-        data.reviewEditType ?? '',
-        data.reviewEditDetail ?? '',
-        data.financeReceiveDate ?? '',
-        data.financePaymentType ?? '',
-        data.financePreparer ?? '',
-        data.financeUrgentCheck ?? '',
-        data.financeActionDate ?? '',
-        data.financeReviewDate ?? '',
-        data.disbursementDate ?? '',
-        data.disbursementPayer ?? '',
-        data.disbursementNotifyDate ?? '',
-        data.disbursementActivityStartDate ?? '',
-        data.disbursementActivityEndDate ?? '',
-        data.financeIssueDate ?? '',
-        data.financeIssueDetail ?? '',
-        data.budgetActionDate ?? '',
-        data.budgetFR ?? '',
-        data.budgetFC ?? '',
-        data.budgetPR ?? '',
-        data.budgetStatus ?? '',
-        data.budgetReceiveDate ?? '',
-        data.budgetCoverDate ?? '',
-        data.budgetDocSetDate ?? '',
-      ];
-
-      try {
-        if (action === 'updateBudget' && data.rowId && Number(data.rowId) >= 3) {
-          const budgetRange = `${sheetName}!AS${data.rowId}:AZ${data.rowId}`;
-          const budgetValues = [
-            data.budgetActionDate ?? '',
-            data.budgetFR ?? '',
-            data.budgetFC ?? '',
-            data.budgetPR ?? '',
-            data.budgetStatus ?? '',
-            data.budgetReceiveDate ?? '',
-            data.budgetCoverDate ?? '',
-            data.budgetDocSetDate ?? '',
-          ];
-          const sheetRes = await fetch(
-            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(budgetRange)}?valueInputOption=USER_ENTERED`,
-            {
-              method: 'PUT',
-              headers: {
-                Authorization: authHeader,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                range: budgetRange,
-                majorDimension: 'ROWS',
-                values: [budgetValues],
-              }),
-            }
-          );
-          if (sheetRes.ok) {
-            return res.status(200).json({
-              success: true,
-              action,
-              message: 'บันทึกข้อมูลงานงบประมาณลง Google Sheet (DATA ช่อง AS:AZ) สำเร็จ',
-              data,
-            });
-          }
-        } else if (action === 'updateFinance' && data.rowId && Number(data.rowId) >= 3) {
-          const financeRange = `${sheetName}!AF${data.rowId}:AR${data.rowId}`;
-          const financeValues = [
-            data.financeReceiveDate ?? '',
-            data.financePaymentType ?? '',
-            data.financePreparer ?? '',
-            data.financeUrgentCheck ?? '',
-            data.financeActionDate ?? '',
-            data.financeReviewDate ?? '',
-            data.disbursementDate ?? '',
-            data.disbursementPayer ?? '',
-            data.disbursementNotifyDate ?? '',
-            data.disbursementActivityStartDate ?? '',
-            data.disbursementActivityEndDate ?? '',
-            data.financeIssueDate ?? '',
-            data.financeIssueDetail ?? '',
-          ];
-          const sheetRes = await fetch(
-            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(financeRange)}?valueInputOption=USER_ENTERED`,
-            {
-              method: 'PUT',
-              headers: {
-                Authorization: authHeader,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                range: financeRange,
-                majorDimension: 'ROWS',
-                values: [financeValues],
-              }),
-            }
-          );
-          if (sheetRes.ok) {
-            return res.status(200).json({
-              success: true,
-              action,
-              message: 'บันทึกข้อมูลงานการเงินลง Google Sheet (DATA ช่อง AF:AR) สำเร็จ',
-              data,
-            });
-          }
-        } else if (action === 'updateReview' && data.rowId && Number(data.rowId) >= 3) {
-          const reviewRange = `${sheetName}!Z${data.rowId}:AE${data.rowId}`;
-          const reviewValues = [
-            data.reviewReceiveDate ?? '',
-            data.reviewProvider ?? '',
-            data.reviewActionDate ?? '',
-            data.reviewStatus ?? '',
-            data.reviewEditType ?? '',
-            data.reviewEditDetail ?? '',
-          ];
-          const sheetRes = await fetch(
-            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(reviewRange)}?valueInputOption=USER_ENTERED`,
-            {
-              method: 'PUT',
-              headers: {
-                Authorization: authHeader,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                range: reviewRange,
-                majorDimension: 'ROWS',
-                values: [reviewValues],
-              }),
-            }
-          );
-          if (sheetRes.ok) {
-            return res.status(200).json({
-              success: true,
-              action,
-              message: 'บันทึกข้อมูลงานสอบทานลง Google Sheet (DATA ช่อง Z:AE) สำเร็จ',
-              data,
-            });
-          }
-        } else if (action === 'updateDocument' && data.rowId && Number(data.rowId) >= 3) {
-          const hasInspectionData = Boolean(
-            (data.actionDate && String(data.actionDate).trim() !== '') ||
-            (data.action && String(data.action).trim() !== '') ||
-            (data.status && String(data.status).trim() !== '') ||
-            (data.qa && String(data.qa).trim() !== '') ||
-            (data.subType && String(data.subType).trim() !== '') ||
-            (data.editGroup && String(data.editGroup).trim() !== '') ||
-            (data.editDetail && String(data.editDetail).trim() !== '')
-          );
-
-          if (hasInspectionData) {
-            // บันทึกข้อมูลงานตรวจจ่ายลงคอลัมน์ S:Y (ประเภทเอกสารย่อย ถึง รายละเอียดกรณีแก้ไข)
-            const inspectRange = `${sheetName}!S${data.rowId}:Y${data.rowId}`;
-            const inspectValues = [
-              data.subType ?? '',
-              data.qa ?? '',
-              data.actionDate ?? '',
-              data.action ?? '',
-              data.status ?? '',
-              data.editGroup ?? '',
-              data.editDetail ?? '',
-            ];
-            const sheetRes = await fetch(
-              `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(inspectRange)}?valueInputOption=USER_ENTERED`,
-              {
-                method: 'PUT',
-                headers: {
-                  Authorization: authHeader,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  range: inspectRange,
-                  majorDimension: 'ROWS',
-                  values: [inspectValues],
-                }),
-              }
-            );
-
-            if (sheetRes.ok) {
-              return res.status(200).json({
-                success: true,
-                action,
-                message: 'บันทึกข้อมูลลง Google Sheet (DATA ช่อง S:Y) สำเร็จ',
-                data,
-              });
-            }
-          } else if (data.agency && data.docRef && data.docNo) {
-            // กรณีแก้ไขข้อมูลทั่วไปจาก EditDocumentModal ให้อัปเดตเฉพาะช่วง A ถึง R
-            const arRange = `${sheetName}!A${data.rowId}:R${data.rowId}`;
-            const arValues = rowValues.slice(0, 18);
-            const sheetRes = await fetch(
-              `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(arRange)}?valueInputOption=USER_ENTERED`,
-              {
-                method: 'PUT',
-                headers: {
-                  Authorization: authHeader,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  range: arRange,
-                  majorDimension: 'ROWS',
-                  values: [arValues],
-                }),
-              }
-            );
-            if (sheetRes.ok) {
-              return res.status(200).json({
-                success: true,
-                action,
-                message: 'บันทึกแก้ไขข้อมูลเอกสารทั่วไป (DATA ช่อง A:R) สำเร็จ',
-                data,
-              });
-            }
-          }
-        } else {
-          const range = `${sheetName}!A:AZ`;
-          const sheetRes = await fetch(
-            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-            {
-              method: 'POST',
-              headers: {
-                Authorization: authHeader,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                range,
-                majorDimension: 'ROWS',
-                values: [rowValues],
-              }),
-            }
-          );
-          if (sheetRes.ok) {
-            return res.status(200).json({
-              success: true,
-              action,
-              message: 'บันทึกข้อมูลลง Google Sheet สำเร็จ',
-              data,
-            });
-          }
-        }
-      } catch (sheetErr) {
-        console.error('Error in Sheets API call from /api/sheets:', sheetErr);
-      }
+    if (!data) {
+      return res.status(400).json({ error: 'Missing data payload' });
     }
 
-    // Optional environment variables on Vercel
-    const gasUrl = process.env.VITE_GAS_URL || process.env.GAS_URL;
+    const baseEndpoint = `${SUPABASE_URL}/rest/v1/${encodeURIComponent(SUPABASE_TABLE)}`;
+    const headers: Record<string, string> = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    };
 
-    if (gasUrl) {
-      try {
-        await fetch(gasUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action, data }),
+    const targetId = isUuid(data.id) ? data.id.trim() : null;
+
+    if (action === 'updateBudget' && targetId) {
+      const payload = {
+        'วันทำรายการ_ลงนาม': toNullable(data.budgetActionDate),
+        'FR': toNullable(data.budgetFR),
+        'FC': toNullable(data.budgetFC),
+        'PR': toNullable(data.budgetPR),
+        'สถานะ_งบประมาณ': toNullable(data.budgetStatus),
+        'วันที่รับ_งบประมาณ': toNullable(data.budgetReceiveDate),
+        'วันที่ตามใบปะหน้า': toNullable(data.budgetCoverDate),
+        'วันที่ตามชุดเอกสาร': toNullable(data.budgetDocSetDate),
+      };
+      const supRes = await fetch(`${baseEndpoint}?id=eq.${encodeURIComponent(targetId)}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      if (supRes.ok) {
+        return res.status(200).json({
+          success: true,
+          action,
+          message: 'บันทึกข้อมูลงานงบประมาณลง Supabase สำเร็จ',
+          data,
         });
-      } catch (err) {
-        console.warn('Forward to GAS URL notice:', err);
+      }
+    } else if (action === 'updateFinance' && targetId) {
+      const payload = {
+        'วันที่รับ_การเงิน': toNullable(data.financeReceiveDate),
+        'ประเภทการจ่าย': toNullable(data.financePaymentType),
+        'ผู้จัดทำเช็ค/โอนเงิน': toNullable(data.financePreparer),
+        'กรณีเช็คด่วน': toNullable(data.financeUrgentCheck),
+        'วันทำรายการ_การเงิน': toNullable(data.financeActionDate),
+        'วันที่สอบทาน_เช็ค': toNullable(data.financeReviewDate),
+        'วันที่_จ่ายเงิน': toNullable(data.disbursementDate),
+        'ผู้จ่ายเงิน': toNullable(data.disbursementPayer),
+        'วันที่แจ้งรับเงิน': toNullable(data.disbursementNotifyDate),
+        'วันที่เริ่ม_ยืมทดรอง': toNullable(data.disbursementActivityStartDate),
+        'วันสิ้นสุดกิจกรรม': toNullable(data.disbursementActivityEndDate),
+        'วันที่_จ่ายไม่ได้': toNullable(data.financeIssueDate),
+        'หมายเหตุ_ไม่จ่าย': toNullable(data.financeIssueDetail),
+      };
+      const supRes = await fetch(`${baseEndpoint}?id=eq.${encodeURIComponent(targetId)}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      if (supRes.ok) {
+        return res.status(200).json({
+          success: true,
+          action,
+          message: 'บันทึกข้อมูลงานการเงินลง Supabase สำเร็จ',
+          data,
+        });
+      }
+    } else if (action === 'updateReview' && targetId) {
+      const payload = {
+        'วันที่รับ_สอบทาน': toNullable(data.reviewReceiveDate),
+        'ผู้ให้บริการ_สอบทาน': toNullable(data.reviewProvider),
+        'วันทำรายการ_สอบทาน': toNullable(data.reviewActionDate),
+        'สถานะ_สอบทาน': toNullable(data.reviewStatus),
+        'ประเภทแก้ไข': toNullable(data.reviewEditType),
+        'หมายเหตุ_สอบทาน': toNullable(data.reviewEditDetail),
+      };
+      const supRes = await fetch(`${baseEndpoint}?id=eq.${encodeURIComponent(targetId)}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      if (supRes.ok) {
+        return res.status(200).json({
+          success: true,
+          action,
+          message: 'บันทึกข้อมูลงานสอบทานลง Supabase สำเร็จ',
+          data,
+        });
+      }
+    } else if (action === 'updateDocument' && targetId) {
+      const payload: Record<string, any> = {
+        'EP.': toNullable(data.ep),
+        'N/O': toNullable(data.no),
+        'เลขทะเบียนรับ': toNullable(data.receiveNo),
+        'ผู้ส่งเอกสาร': toNullable(data.sender),
+        'โทรศัพท์': toNullable(data.phone),
+        'โทร.': toNullable(data.phone),
+        'ที่อยู่อีเมล': toNullable(data.email),
+        'เลขที่ อว/ ชื่อ': toNullable(data.docRef),
+        'หน่วยงาน': toNullable(data.agency),
+        'เลขที่เอกสาร': toNullable(data.docNo),
+        'ประเภทเอกสาร': toNullable(data.docType),
+        'วันที่รับ': toNullable(data.dateReceive),
+        'วันที่ส่ง': toNullable(data.dateDesk),
+        'วันที่ส่งคืน': toNullable(data.dateReturn),
+        'สถานะ_ธุรการส่งคืน': toNullable(data.returnStatus),
+        'ผู้ให้บริการ': toNullable(data.providerAuto),
+        'เปลี่ยนโต๊ะบริการ': toNullable(data.providerChange),
+        'ผู้ให้บริการ-final': toNullable(data.providerFinal),
+        'หมายเหตุ': toNullable(data.note),
+        'ประเภทเอกสารย่อย': toNullable(data.subType),
+        'QA.': toNullable(data.qa),
+        'วันทำรายการ_ตรวจ': toNullable(data.actionDate),
+        'การดำเนินการ': toNullable(data.action),
+        'สถานะ_งานตรวจ': toNullable(data.status),
+        'Group-กรณีแก้ไข': toNullable(data.editGroup),
+        'หมายเหตุ_งานตรวจ': toNullable(data.editDetail),
+      };
+      const supRes = await fetch(`${baseEndpoint}?id=eq.${encodeURIComponent(targetId)}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      if (supRes.ok) {
+        return res.status(200).json({
+          success: true,
+          action,
+          message: 'บันทึกข้อมูลลง Supabase สำเร็จ',
+          data,
+        });
+      }
+    } else {
+      const fullPayload: Record<string, any> = {
+        'EP.': toNullable(data.ep),
+        'N/O': toNullable(data.no) || 'N',
+        'เลขทะเบียนรับ': toNullable(data.receiveNo),
+        'ผู้ส่งเอกสาร': toNullable(data.sender),
+        'โทรศัพท์': toNullable(data.phone),
+        'โทร.': toNullable(data.phone),
+        'ที่อยู่อีเมล': toNullable(data.email),
+        'เลขที่ อว/ ชื่อ': toNullable(data.docRef),
+        'หน่วยงาน': toNullable(data.agency),
+        'เลขที่เอกสาร': toNullable(data.docNo),
+        'ประเภทเอกสาร': toNullable(data.docType),
+        'วันที่รับ': toNullable(data.dateReceive),
+        'วันที่ส่ง': toNullable(data.dateDesk),
+        'วันที่ส่งคืน': toNullable(data.dateReturn),
+        'สถานะ_ธุรการส่งคืน': toNullable(data.returnStatus),
+        'ผู้ให้บริการ': toNullable(data.providerAuto),
+        'เปลี่ยนโต๊ะบริการ': toNullable(data.providerChange),
+        'ผู้ให้บริการ-final': toNullable(data.providerFinal),
+        'หมายเหตุ': toNullable(data.note),
+        'ประเภทเอกสารย่อย': toNullable(data.subType),
+        'QA.': toNullable(data.qa),
+        'วันทำรายการ_ตรวจ': toNullable(data.actionDate),
+        'การดำเนินการ': toNullable(data.action),
+        'สถานะ_งานตรวจ': toNullable(data.status),
+        'Group-กรณีแก้ไข': toNullable(data.editGroup),
+        'หมายเหตุ_งานตรวจ': toNullable(data.editDetail),
+        'TYPE': '1. ตรวจจ่าย-งานใหม่',
+      };
+      const supRes = await fetch(baseEndpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(fullPayload),
+      });
+      if (supRes.ok) {
+        return res.status(200).json({
+          success: true,
+          action,
+          message: 'เพิ่มข้อมูลใหม่ลง Supabase สำเร็จ',
+          data,
+        });
       }
     }
 
@@ -314,10 +226,10 @@ export default async function handler(req: any, res: any) {
       success: true,
       action: action || 'updateDocument',
       message: 'บันทึกข้อมูลเรียบร้อย',
-      data: data,
+      data,
     });
   } catch (error: any) {
-    console.error('Error handling /api/sheets:', error);
+    console.error('Error handling /api/sheets (Supabase):', error);
     return res.status(500).json({ error: error?.message || 'Server error' });
   }
 }
